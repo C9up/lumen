@@ -17,8 +17,8 @@ import type { Renderer } from "./renderers.js";
 export type BorderPainter = (character: string, colors: Colors) => string;
 
 export class Box {
-	readonly #colors: Colors;
-	readonly #renderer: Renderer;
+	#colors: Colors;
+	#renderer: Renderer;
 	readonly #withPointer: boolean;
 	readonly #lines: string[] = [];
 	#heading: string | undefined;
@@ -33,6 +33,24 @@ export class Box {
 		this.#colors = colors;
 		this.#renderer = renderer;
 		this.#withPointer = options.pointer ?? false;
+	}
+
+	getColors(): Colors {
+		return this.#colors;
+	}
+
+	useColors(colors: Colors): this {
+		this.#colors = colors;
+		return this;
+	}
+
+	getRenderer(): Renderer {
+		return this.#renderer;
+	}
+
+	useRenderer(renderer: Renderer): this {
+		this.#renderer = renderer;
+		return this;
 	}
 
 	heading(text: string): this {

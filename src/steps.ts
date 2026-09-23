@@ -9,13 +9,31 @@ import type { Colors } from "./colors.js";
 import type { Renderer } from "./renderers.js";
 
 export class Steps {
-	readonly #colors: Colors;
-	readonly #renderer: Renderer;
+	#colors: Colors;
+	#renderer: Renderer;
 	readonly #steps: Array<{ title: string; content?: string }> = [];
 
 	constructor(colors: Colors, renderer: Renderer) {
 		this.#colors = colors;
 		this.#renderer = renderer;
+	}
+
+	getColors(): Colors {
+		return this.#colors;
+	}
+
+	useColors(colors: Colors): this {
+		this.#colors = colors;
+		return this;
+	}
+
+	getRenderer(): Renderer {
+		return this.#renderer;
+	}
+
+	useRenderer(renderer: Renderer): this {
+		this.#renderer = renderer;
+		return this;
 	}
 
 	add(title: string, content?: string): this {

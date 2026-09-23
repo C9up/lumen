@@ -13,7 +13,12 @@
 import { stdout } from "node:process";
 import type { Colors, StyleName } from "./colors.js";
 import { formatDuration } from "./duration.js";
-import { ConsoleRenderer, type Renderer, type Stream } from "./renderers.js";
+import {
+	ConsoleRenderer,
+	MemoryRenderer,
+	type Renderer,
+	type Stream,
+} from "./renderers.js";
 
 /** Per-message decoration. */
 export interface MessageOptions {
@@ -74,6 +79,10 @@ export class Logger {
 		return this.#colors;
 	}
 
+	getColors(): Colors {
+		return this.#colors;
+	}
+
 	useColors(colors: Colors): this {
 		this.#colors = colors;
 		return this;
@@ -118,6 +127,17 @@ export class Logger {
 		return new Logger(this.#colors, this.#renderer, options);
 	}
 
+	/**
+	 * A logger that discards everything.
+	 *
+	 * For a stretch where the output belongs to something else — inside a task
+	 * callback, where the task widget owns the terminal and a stray line would
+	 * land in the middle of its redraw.
+	 */
+	dummy(): Logger {
+		return new Logger(this.#colors, new MemoryRenderer());
+	}
+
 	success(message: string, options: MessageOptions = {}): void {
 		this.#renderer.log(this.prepare("success", message, options), "stdout");
 	}
@@ -154,6 +174,21 @@ export class Logger {
 	/** A line with no decoration at all. Use it for the command's own output. */
 	log(message: string, stream: Stream = "stdout"): void {
 		this.#renderer.log(message, stream);
+	}
+
+	/** The same, on stderr. */
+	logError(message: string): void {
+		this.#renderer.log(message, "stderr");
+	}
+
+	/** Overwrite the line written last — for a progress line of your own. */
+	logUpdate(message: string): void {
+		this.#renderer.logUpdate(message);
+	}
+
+	/** Stop overwriting: the last updated line becomes permanent. */
+	logUpdatePersist(): void {
+		this.#renderer.logUpdatePersist();
 	}
 
 	/** A step whose outcome is reported later. */
@@ -204,6 +239,40 @@ export class Logger {
 		}
 
 		return text;
+	}
+
+	/**
+	 * One `prepare` per level, mirroring the levels themselves.
+	 *
+	 * `prepare('info', …)` says the same thing; these exist because a caller
+	 * building a line to put somewhere else reaches for the name it already
+	 * uses to log it.
+	 */
+	prepareSuccess(message: string, options: MessageOptions = {}): string {
+		return this.prepare("success", message, options);
+	}
+
+	prepareInfo(message: string, options: MessageOptions = {}): string {
+		return this.prepare("info", message, options);
+	}
+
+	prepareWarning(message: string, options: MessageOptions = {}): string {
+		return this.prepare("warning", message, options);
+	}
+
+	prepareError(message: string | Error, options: MessageOptions = {}): string {
+		return this.prepare("error", messageOf(message), options);
+	}
+
+	prepareFatal(message: string | Error, options: MessageOptions = {}): string {
+		const line = this.prepare("fatal", messageOf(message), options);
+		return message instanceof Error
+			? `${line}${this.#formatStack(message.stack)}`
+			: line;
+	}
+
+	prepareDebug(message: string, options: MessageOptions = {}): string {
+		return this.prepare("debug", message, options);
 	}
 
 	#label(colour: StyleName, text: string): string {
@@ -259,20 +328,30 @@ export class Action {
 	}
 
 	succeeded(): void {
-		this.#renderer.log(this.prepare("DONE", "green"), "stdout");
+		this.#renderer.log(this.prepareSucceeded(), "stdout");
 	}
 
 	skipped(reason?: string): void {
-		const suffix =
-			reason === undefined ? "" : ` ${this.#colors.dim(`(${reason})`)}`;
-		this.#renderer.log(`${this.prepare("SKIPPED", "cyan")}${suffix}`, "stdout");
+		this.#renderer.log(this.prepareSkipped(reason), "stdout");
 	}
 
 	failed(error: unknown): void {
-		this.#renderer.log(
-			`${this.prepare("FAILED", "red")}${this.#formatError(error)}`,
-			"stderr",
-		);
+		this.#renderer.log(this.prepareFailed(error), "stderr");
+	}
+
+	/** The three outcome lines, built without writing them. */
+	prepareSucceeded(): string {
+		return this.prepare("DONE", "green");
+	}
+
+	prepareSkipped(reason?: string): string {
+		const suffix =
+			reason === undefined ? "" : ` ${this.#colors.dim(`(${reason})`)}`;
+		return `${this.prepare("SKIPPED", "cyan")}${suffix}`;
+	}
+
+	prepareFailed(error: unknown): string {
+		return `${this.prepare("FAILED", "red")}${this.#formatError(error)}`;
 	}
 
 	/** The line without writing it — same reason as `Logger.prepare`. */
@@ -315,6 +394,7 @@ export class Spinner {
 	#render: () => string;
 	readonly #renderer: Renderer;
 	#timer: ReturnType<typeof setInterval> | undefined;
+	#writer: ((line: string) => void) | undefined;
 	#frame = 0;
 
 	constructor(render: () => string, renderer: Renderer) {
@@ -345,6 +425,18 @@ export class Spinner {
 		return this;
 	}
 
+	/**
+	 * Write the animation yourself instead of letting the renderer do it.
+	 *
+	 * For a caller that already owns a region of the terminal — a task widget
+	 * redrawing several lines — where a spinner writing on its own would land
+	 * in the middle of someone else's frame.
+	 */
+	tap(writer: (line: string) => void): this {
+		this.#writer = writer;
+		return this;
+	}
+
 	stop(): void {
 		if (this.#timer === undefined) return;
 		clearInterval(this.#timer);
@@ -353,12 +445,18 @@ export class Spinner {
 	}
 
 	#draw(): void {
-		this.#renderer.logUpdate(
-			`${this.#render()} ${Spinner.FRAMES[this.#frame] ?? ""}`,
-		);
+		const line = `${this.#render()} ${Spinner.FRAMES[this.#frame] ?? ""}`;
+		if (this.#writer !== undefined) {
+			this.#writer(line);
+			return;
+		}
+		this.#renderer.logUpdate(line);
 	}
 
 	#animatable(): boolean {
+		// A tapped spinner animates wherever it is: the caller took
+		// responsibility for the output, so the TTY question is theirs.
+		if (this.#writer !== undefined) return true;
 		return this.#renderer instanceof ConsoleRenderer && stdout.isTTY === true;
 	}
 }

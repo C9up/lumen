@@ -28,16 +28,35 @@ export class InvalidColumnError extends Error {
 }
 
 export class Table {
-	readonly #colors: Colors;
-	readonly #renderer: Renderer;
+	#colors: Colors;
+	#renderer: Renderer;
 	#headCells: TableCell[] = [];
 	readonly #rows: TableCell[][] = [];
 	#full = false;
 	#fluidColumn = 0;
+	#widths: number[] = [];
 
 	constructor(colors: Colors, renderer: Renderer) {
 		this.#colors = colors;
 		this.#renderer = renderer;
+	}
+
+	getColors(): Colors {
+		return this.#colors;
+	}
+
+	useColors(colors: Colors): this {
+		this.#colors = colors;
+		return this;
+	}
+
+	getRenderer(): Renderer {
+		return this.#renderer;
+	}
+
+	useRenderer(renderer: Renderer): this {
+		this.#renderer = renderer;
+		return this;
 	}
 
 	head(columns: readonly TableInput[]): this {
@@ -63,8 +82,27 @@ export class Table {
 	 * Stretch to the terminal width, one column absorbing the slack. Falls back
 	 * to content width when the width is unknown — a pipe has no columns.
 	 */
-	fullWidth(): this {
-		this.#full = true;
+	fullWidth(renderFullWidth = true): this {
+		this.#full = renderFullWidth;
+		return this;
+	}
+
+	/**
+	 * Fix the column widths instead of measuring the content.
+	 *
+	 * A width smaller than what a cell needs is still honoured — the caller
+	 * asked for a shape, and silently widening it back would defeat the point
+	 * of asking. Columns left unspecified keep their measured width.
+	 */
+	columnWidths(widths: readonly number[]): this {
+		for (const width of widths) {
+			if (!Number.isInteger(width) || width < 0) {
+				throw new InvalidColumnError(
+					`columnWidths received ${width}, which is not a column count.`,
+				);
+			}
+		}
+		this.#widths = [...widths];
 		return this;
 	}
 
@@ -90,9 +128,13 @@ export class Table {
 		if (all.length === 0) return [];
 
 		const columns = Math.max(...all.map((row) => row.length));
-		const widths = Array.from({ length: columns }, (_, index) =>
-			Math.max(...all.map((row) => stringWidth(row[index]?.content ?? ""))),
-		);
+		const widths = Array.from({ length: columns }, (_, index) => {
+			const fixed = this.#widths[index];
+			if (fixed !== undefined) return fixed;
+			return Math.max(
+				...all.map((row) => stringWidth(row[index]?.content ?? "")),
+			);
+		});
 
 		if (this.#full) {
 			// Known only now: the column count comes from the rows.

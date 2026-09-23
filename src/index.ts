@@ -57,8 +57,10 @@ export {
 	type TableInput,
 } from "./table.js";
 export {
+	Task,
 	TaskContext,
 	type TaskOutcome,
+	type TaskState,
 	Tasks,
 	type TasksOptions,
 } from "./tasks.js";

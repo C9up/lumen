@@ -80,6 +80,36 @@ Each style closes with its own code rather than a blanket reset, so a nested
 call restores what the outer one was holding: `red('a ' + dim('b') + ' c')`
 stays red after the `b`.
 
+## Driving the output yourself
+
+Every widget writes through a renderer, and every line can be built without
+writing it — `logger.prepareInfo(msg)`, `action.prepareSucceeded()`,
+`table.prepare()`, `box.prepare()`, `steps.prepare()`. A spinner hands its
+frames over with `tap(line => …)`, and `logger.dummy()` swallows the output of
+a stretch that would otherwise land in the middle of someone else's frame.
+
+A task run is data as well as output:
+
+```ts
+const tasks = ui.tasks()
+tasks.add('sync', async (task) => {
+  task.update('42 files')
+  return 'done'
+})
+tasks.tasks()[0].onUpdate((task) => report(task.getState(), task.getDuration()))
+await tasks.run()
+tasks.getState()   // 'succeeded' | 'failed'
+```
+
+`addIf(condition, …)` and `addUnless(…)` declare a step behind a flag, and each
+`Task` carries `getState()`, `getDuration()`, `getError()`,
+`getSuccessMessage()` and `getLastLoggedLine()`.
+
+NAMED DEVIATION — upstream builds a widget bare (`new Table()`) and wires the
+colours and the renderer afterwards, which makes forgetting either a silent
+failure. Here `ui.table()` hands them over at construction; `useColors()` /
+`useRenderer()` still swap them on a widget you built yourself.
+
 ## Layout
 
 `@c9up/lumen/helpers` has the primitives the widgets are built on —

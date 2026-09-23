@@ -4,6 +4,10 @@
  * Sequential on purpose: the point is a readable progress report, and running
  * them concurrently would interleave the lines into noise. A failing task stops
  * the run — the ones after it usually depend on it.
+ *
+ * Each task is an observable object rather than a closure's local state, so a
+ * caller can render the run its own way: `tasks()` hands back the list and
+ * `onUpdate` fires whenever one moves.
  */
 
 import type { Colors } from "./colors.js";
@@ -11,25 +15,75 @@ import { formatDuration } from "./duration.js";
 import { icons } from "./icons.js";
 import type { Renderer } from "./renderers.js";
 
-/** Handed to a task callback so it can report progress and failure. */
-export class TaskContext {
-	readonly #colors: Colors;
-	readonly #renderer: Renderer;
-	readonly #title: string;
-	readonly #verbose: boolean;
-	#lastMessage = "";
-	#failure: Error | undefined;
+export type TaskState = "idle" | "running" | "succeeded" | "failed";
 
-	constructor(
-		colors: Colors,
-		renderer: Renderer,
-		title: string,
-		verbose: boolean,
-	) {
-		this.#colors = colors;
-		this.#renderer = renderer;
+/**
+ * One step: its state, and the API its callback uses to report progress.
+ *
+ * Handed to the callback, and kept by the manager afterwards — which is what
+ * makes a finished run inspectable instead of only printable.
+ */
+export class Task {
+	readonly #title: string;
+	readonly #listeners: Array<(task: Task) => void> = [];
+	#state: TaskState = "idle";
+	#message: string | null = null;
+	#error: unknown;
+	#startedAt: number | undefined;
+	#elapsed: number | undefined;
+	#lastLine: string | null = null;
+
+	constructor(title: string) {
 		this.#title = title;
-		this.#verbose = verbose;
+	}
+
+	get title(): string {
+		return this.#title;
+	}
+
+	getState(): TaskState {
+		return this.#state;
+	}
+
+	/** How long it ran, formatted; `null` while it has not finished. */
+	getDuration(): string | null {
+		return this.#elapsed === undefined ? null : formatDuration(this.#elapsed);
+	}
+
+	getError(): unknown {
+		return this.#error;
+	}
+
+	/** The message it finished with, or the last progress message it reported. */
+	getSuccessMessage(): string | null {
+		return this.#message;
+	}
+
+	/** The last line the manager wrote for this task. */
+	getLastLoggedLine(): string | null {
+		return this.#lastLine;
+	}
+
+	/** @internal Recorded by the manager as it renders. */
+	setLastLoggedLine(line: string): void {
+		this.#lastLine = line;
+	}
+
+	/**
+	 * Called whenever the task moves — started, progressed, finished.
+	 *
+	 * This is the seam for a renderer of your own: the manager's own output is
+	 * one consumer of these events, not the only possible one.
+	 */
+	onUpdate(listener: (task: Task) => void): this {
+		this.#listeners.push(listener);
+		return this;
+	}
+
+	start(): this {
+		this.#state = "running";
+		this.#startedAt = Date.now();
+		return this.#notify();
 	}
 
 	/**
@@ -39,40 +93,57 @@ export class TaskContext {
 	 * on the task's final line. A progress loop otherwise floods the output
 	 * with a line per percent.
 	 */
-	update(message: string): void {
-		this.#lastMessage = message;
-		if (this.#verbose) {
-			this.#renderer.log(
-				`  ${this.#colors.dim(`${this.#title}: ${message}`)}`,
-				"stdout",
-			);
-		}
+	update(message: string): this {
+		this.#message = message;
+		return this.#notify();
 	}
 
-	/** @internal The last progress message, shown when the task ends. */
-	get lastMessage(): string {
-		return this.#lastMessage;
+	markAsSucceeded(message?: string): this {
+		if (message !== undefined) this.#message = message;
+		this.#state = "succeeded";
+		this.#finish();
+		return this.#notify();
+	}
+
+	markAsFailed(error: unknown): this {
+		this.#error = error instanceof Error ? error : new Error(String(error));
+		this.#state = "failed";
+		this.#finish();
+		return this.#notify();
 	}
 
 	/**
-	 * Mark the task as failed. RETURNED from the callback rather than thrown,
-	 * so an expected failure reads as a value instead of control flow.
+	 * Mark the task as failed and hand the Error back.
+	 *
+	 * RETURNED from the callback rather than thrown, so an expected failure
+	 * reads as a value instead of control flow:
+	 *
+	 *     .add('install', async (task) => task.error('no network'))
 	 */
 	error(reason: string | Error): Error {
-		this.#failure = reason instanceof Error ? reason : new Error(reason);
-		return this.#failure;
+		this.markAsFailed(reason);
+		const failure = this.#error;
+		return failure instanceof Error ? failure : new Error(String(reason));
 	}
 
-	/** @internal */
-	get failure(): Error | undefined {
-		return this.#failure;
+	#finish(): void {
+		this.#elapsed =
+			this.#startedAt === undefined ? 0 : Date.now() - this.#startedAt;
+	}
+
+	#notify(): this {
+		for (const listener of this.#listeners) listener(this);
+		return this;
 	}
 }
 
+/** The shape a caller reads off a finished run. */
 export interface TaskOutcome {
 	title: string;
 	state: "succeeded" | "failed";
 	message: string;
+	/** Formatted, as `getDuration()` gives it. */
+	duration: string | null;
 	error?: Error;
 }
 
@@ -87,14 +158,15 @@ export interface TasksOptions {
 }
 
 export class Tasks {
-	readonly #colors: Colors;
-	readonly #renderer: Renderer;
+	#colors: Colors;
+	#renderer: Renderer;
 	readonly #verbose: boolean;
 	readonly #entries: Array<{
-		title: string;
-		work: (task: TaskContext) => Promise<unknown>;
+		task: Task;
+		work: (task: Task) => Promise<unknown>;
 	}> = [];
 	readonly #outcomes: TaskOutcome[] = [];
+	#state: TaskState = "idle";
 
 	constructor(colors: Colors, renderer: Renderer, options: TasksOptions = {}) {
 		this.#colors = colors;
@@ -102,9 +174,54 @@ export class Tasks {
 		this.#verbose = options.verbose === true;
 	}
 
-	add(title: string, work: (task: TaskContext) => Promise<unknown>): this {
-		this.#entries.push({ title, work });
+	getColors(): Colors {
+		return this.#colors;
+	}
+
+	useColors(colors: Colors): this {
+		this.#colors = colors;
 		return this;
+	}
+
+	getRenderer(): Renderer {
+		return this.#renderer;
+	}
+
+	useRenderer(renderer: Renderer): this {
+		this.#renderer = renderer;
+		return this;
+	}
+
+	add(title: string, work: (task: Task) => Promise<unknown>): this {
+		this.#entries.push({ task: new Task(title), work });
+		return this;
+	}
+
+	/** Add it only when the condition holds — a step behind a flag. */
+	addIf(
+		condition: boolean,
+		title: string,
+		work: (task: Task) => Promise<unknown>,
+	): this {
+		return condition ? this.add(title, work) : this;
+	}
+
+	addUnless(
+		condition: boolean,
+		title: string,
+		work: (task: Task) => Promise<unknown>,
+	): this {
+		return condition ? this : this.add(title, work);
+	}
+
+	/** Every task, in declaration order — before, during or after the run. */
+	tasks(): Task[] {
+		return this.#entries.map((entry) => entry.task);
+	}
+
+	/** `failed` as soon as one did; `succeeded` once they all have. */
+	getState(): TaskState {
+		return this.#state;
 	}
 
 	/** Results in declaration order, including the task that failed. */
@@ -113,61 +230,91 @@ export class Tasks {
 	}
 
 	async run(): Promise<TaskOutcome[]> {
-		for (const entry of this.#entries) {
-			const startedAt = Date.now();
-			const context = new TaskContext(
-				this.#colors,
-				this.#renderer,
-				entry.title,
-				this.#verbose,
-			);
-			let message = "";
-			let failure: Error | undefined;
+		this.#state = "running";
+		for (const { task, work } of this.#entries) {
+			if (this.#verbose) {
+				// Every progress message, as it happens. Registered before the
+				// run so the first `update` is not missed.
+				task.onUpdate((current) => {
+					if (current.getState() !== "running") return;
+					const message = current.getSuccessMessage();
+					if (message === null) return;
+					this.#write(
+						current,
+						`  ${this.#colors.dim(`${current.title}: ${message}`)}`,
+						"stdout",
+					);
+				});
+			}
+			task.start();
 
 			try {
-				const returned = await entry.work(context);
-				failure =
-					context.failure ?? (returned instanceof Error ? returned : undefined);
-				if (failure === undefined) {
-					message =
-						returned === undefined ? context.lastMessage : String(returned);
+				const returned = await work(task);
+				if (task.getState() === "running") {
+					// The callback reported nothing: a returned Error still means
+					// failure, anything else means success.
+					if (returned instanceof Error) task.markAsFailed(returned);
+					else
+						task.markAsSucceeded(
+							returned === undefined ? undefined : String(returned),
+						);
 				}
 			} catch (error) {
-				failure = error instanceof Error ? error : new Error(String(error));
+				task.markAsFailed(error);
 			}
 
-			const elapsed = this.#colors.dim(
-				`(${formatDuration(Date.now() - startedAt)})`,
-			);
+			const elapsed = this.#colors.dim(`(${task.getDuration() ?? "0ms"})`);
+			const message = task.getSuccessMessage() ?? "";
 
-			if (failure === undefined) {
+			if (task.getState() === "succeeded") {
 				this.#outcomes.push({
-					title: entry.title,
+					title: task.title,
 					state: "succeeded",
 					message,
+					duration: task.getDuration(),
 				});
 				const detail = message === "" ? "" : ` ${this.#colors.dim(message)}`;
-				this.#renderer.log(
-					`${this.#colors.green(icons.tick)} ${entry.title}${detail} ${elapsed}`,
+				this.#write(
+					task,
+					`${this.#colors.green(icons.tick)} ${task.title}${detail} ${elapsed}`,
 					"stdout",
 				);
 				continue;
 			}
 
+			const failure =
+				task.getError() instanceof Error
+					? (task.getError() as Error)
+					: new Error(String(task.getError()));
 			this.#outcomes.push({
-				title: entry.title,
+				title: task.title,
 				state: "failed",
 				message: failure.message,
+				duration: task.getDuration(),
 				error: failure,
 			});
-			this.#renderer.log(
-				`${this.#colors.red(icons.cross)} ${entry.title} ${this.#colors.dim(failure.message)} ${elapsed}`,
+			this.#write(
+				task,
+				`${this.#colors.red(icons.cross)} ${task.title} ${this.#colors.dim(failure.message)} ${elapsed}`,
 				"stderr",
 			);
 			// Stop here: later steps normally build on this one.
-			break;
+			this.#state = "failed";
+			return this.outcomes;
 		}
 
+		this.#state = "succeeded";
 		return this.outcomes;
 	}
+
+	#write(task: Task, line: string, stream: "stdout" | "stderr"): void {
+		task.setLastLoggedLine(line);
+		this.#renderer.log(line, stream);
+	}
 }
+
+/**
+ * The name the task object had when it only carried the callback's two
+ * methods. Kept so existing imports keep resolving.
+ */
+export { Task as TaskContext };
