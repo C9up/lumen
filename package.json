@@ -1,0 +1,69 @@
+{
+  "name": "@c9up/lumen",
+  "version": "0.1.0",
+  "description": "Lumen — terminal output for the Ream ecosystem: colours, logger, tables, boxes and task reports, with a raw mode that makes all of it assertable",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./colors": {
+      "types": "./src/colors.ts",
+      "import": "./src/colors.ts"
+    },
+    "./helpers": {
+      "types": "./src/helpers.ts",
+      "import": "./src/helpers.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "lint": "biome check src/ tests/",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.12",
+    "@types/node": "^22.20.1",
+    "@vitest/coverage-v8": "4.1.11",
+    "typescript": "^6.0.3",
+    "vitest": "4.1.11"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "files": [
+    "src",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./colors": {
+        "types": "./dist/colors.d.ts",
+        "import": "./dist/colors.js"
+      },
+      "./helpers": {
+        "types": "./dist/helpers.d.ts",
+        "import": "./dist/helpers.js"
+      }
+    },
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/C9up/lumen.git"
+  }
+}
