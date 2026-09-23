@@ -79,10 +79,29 @@ describe("lumen > Ui modes", () => {
 });
 
 describe("lumen > factory", () => {
-	it("detects the mode when none is given", () => {
-		// The test process is not a TTY, so colour would be noise in the
-		// transcript.
-		expect(lumen().mode).toBe("silent");
+	it("detects the mode from the environment when none is given", () => {
+		// Pinned through the environment rather than through the stream: this
+		// suite runs both on a developer's terminal and in CI, and asserting
+		// "not a TTY, therefore silent" made the outcome depend on which — it
+		// went red the first time it ran on GitHub Actions, where the CI rule
+		// turns colour back ON.
+		const previous = {
+			NO_COLOR: process.env.NO_COLOR,
+			FORCE_COLOR: process.env.FORCE_COLOR,
+		};
+		try {
+			process.env.NO_COLOR = "1";
+			delete process.env.FORCE_COLOR;
+			expect(lumen().mode).toBe("silent");
+
+			process.env.FORCE_COLOR = "1";
+			expect(lumen().mode).toBe("normal");
+		} finally {
+			for (const [name, value] of Object.entries(previous)) {
+				if (value === undefined) delete process.env[name];
+				else process.env[name] = value;
+			}
+		}
 	});
 
 	it("takes an explicit mode over the detection", () => {
