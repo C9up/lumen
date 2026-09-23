@@ -23,6 +23,14 @@ export interface TableCell {
 	vAlign?: "top" | "center" | "bottom";
 	/** How many columns this cell spans. */
 	colSpan?: number;
+	/**
+	 * How many ROWS this cell spans.
+	 *
+	 * It keeps its column busy in the rows below, so their cells shift right,
+	 * and its own text is laid out across the combined height of every row it
+	 * covers.
+	 */
+	rowSpan?: number;
 }
 
 export type TableInput = string | TableCell;
@@ -201,7 +209,8 @@ export class Table {
 				: this.#rows;
 		if (all.length === 0) return [];
 
-		const columns = Math.max(...all.map((row) => spannedWidth(row)));
+		const grid = layout(all);
+		const columns = grid.columns;
 		// Checked before the raw short-circuit: a table asked to stretch on a
 		// column it does not have is a mistake whichever mode it renders in,
 		// and a test running in raw mode is exactly where it should surface.
@@ -217,7 +226,7 @@ export class Table {
 			return all.map((row) => row.map((cell) => cell.content).join("|"));
 		}
 
-		const widths = this.#resolveWidths(all, columns);
+		const widths = this.#resolveWidths(grid, columns);
 		const chars = { ...DEFAULT_CHARS, ...this.#options.chars };
 		const paint = (glyph: string): string => this.#colors.dim(glyph);
 
@@ -231,10 +240,10 @@ export class Table {
 				paint,
 			),
 		];
-		if (this.#headCells.length > 0) {
-			lines.push(
-				...this.#renderRow(this.#headCells, widths, chars, paint, true),
-			);
+		const headRows = this.#headCells.length > 0 ? 1 : 0;
+		const blocks = this.#renderGrid(grid, widths, chars, paint, headRows);
+		if (headRows === 1) {
+			lines.push(...(blocks[0] ?? []));
 			lines.push(
 				border(
 					widths,
@@ -246,9 +255,7 @@ export class Table {
 				),
 			);
 		}
-		for (const row of this.#rows) {
-			lines.push(...this.#renderRow(row, widths, chars, paint, false));
-		}
+		for (const block of blocks.slice(headRows)) lines.push(...block);
 		lines.push(
 			border(
 				widths,
@@ -267,21 +274,40 @@ export class Table {
 	}
 
 	/** Column widths, padding included. */
-	#resolveWidths(all: TableCell[][], columns: number): number[] {
+	#resolveWidths(grid: Grid, columns: number): number[] {
 		const measured = Array.from({ length: columns }, (_, index) => {
 			const fixed = this.#widths[index];
 			if (fixed !== undefined) return fixed;
 			let widest = 0;
-			for (const row of all) {
+			for (const placed of grid.placed) {
 				// A spanning cell contributes to no single column: sizing one
 				// from it would make that column as wide as several.
-				for (const [cell, at, span] of positioned(row)) {
-					if (span !== 1 || at !== index) continue;
-					widest = Math.max(widest, stringWidth(cell.content));
-				}
+				if (placed.colSpan !== 1 || placed.column !== index) continue;
+				widest = Math.max(widest, stringWidth(placed.cell.content));
 			}
 			return widest + PADDING * 2;
 		});
+
+		// A spanning cell measured nothing, so its columns may be too narrow
+		// for it. Widen them until it fits — truncating it instead would hide
+		// content the caller never asked to drop, and cli-table3 grows too.
+		for (const placed of grid.placed) {
+			if (placed.colSpan === 1) continue;
+			if (this.#widths.length > 0) continue; // explicit widths are the caller's
+			const needed = stringWidth(placed.cell.content) + PADDING * 2;
+			const have = spanWidth(measured, placed.column, placed.colSpan);
+			if (have >= needed) continue;
+			let missing = needed - have;
+			// Spread it, one column at a time, so no single column absorbs all
+			// of it and the table stays balanced.
+			for (let i = 0; missing > 0; i = (i + 1) % placed.colSpan) {
+				const at = placed.column + i;
+				const width = measured[at];
+				if (width === undefined) break;
+				measured[at] = width + 1;
+				missing -= 1;
+			}
+		}
 
 		if (!this.#full) return measured;
 		// The borders take one column each, plus one on the far right.
@@ -296,23 +322,28 @@ export class Table {
 	}
 
 	/**
-	 * One row, which may be several lines: a cell wider than its column wraps,
-	 * and every cell is then padded to the tallest.
+	 * Every row, as a block of lines.
+	 *
+	 * Rendered from the GRID rather than row by row, because a cell with a
+	 * `rowSpan` belongs to several rows at once: its text is laid out across
+	 * their combined height, and the rows below it skip the column it holds.
 	 */
-	#renderRow(
-		row: TableCell[],
+	#renderGrid(
+		grid: Grid,
 		widths: number[],
 		chars: TableChars,
 		paint: (glyph: string) => string,
-		isHead: boolean,
-	): string[] {
-		const cells = [...positioned(row)].map(([cell, at, span]) => {
-			// A spanning cell owns its columns AND the borders between them.
-			const width =
-				widths.slice(at, at + span).reduce((total, w) => total + w, 0) +
-				(span - 1);
+		headRows: number,
+	): string[][] {
+		// Each cell's text, wrapped to the width it actually spans.
+		const laid = new Map<Placed, string[]>();
+		for (const placed of grid.placed) {
+			const width = spanWidth(widths, placed.column, placed.colSpan);
 			const inner = Math.max(1, width - PADDING * 2);
-			const content = isHead ? this.#colors.bold(cell.content) : cell.content;
+			const isHead = placed.row < headRows;
+			const content = isHead
+				? this.#colors.bold(placed.cell.content)
+				: placed.cell.content;
 			const wrapped = wrap([content], {
 				startColumn: 0,
 				endColumn: inner,
@@ -320,35 +351,82 @@ export class Table {
 			// Soft wrapping keeps a word that is longer than the line intact,
 			// which is right for prose and wrong inside a border: the cell
 			// would push through it. Anything still too wide is cut.
-			const lines = wrapped
-				.split("\n")
-				.flatMap((line) => hardWrap(line, inner));
-			return { cell, width, inner, lines };
-		});
-
-		const height = Math.max(...cells.map((entry) => entry.lines.length));
-		const out: string[] = [];
-		for (let line = 0; line < height; line += 1) {
-			const parts = cells.map((entry) => {
-				const text = pick(
-					entry.lines,
-					line,
-					height,
-					entry.cell.vAlign ?? "top",
-				);
-				return (
-					" ".repeat(PADDING) +
-					align(text, entry.inner, entry.cell.hAlign ?? "left") +
-					" ".repeat(PADDING)
-				);
-			});
-			out.push(
-				paint(chars.left) +
-					parts.join(paint(chars.middle)) +
-					paint(chars.right),
+			laid.set(
+				placed,
+				wrapped.split("\n").flatMap((line) => hardWrap(line, inner)),
 			);
 		}
-		return out;
+
+		// Row heights: the tallest single-row cell starting there, then any
+		// spanning cell that still does not fit pushes its last row down.
+		const heights = Array.from({ length: grid.rows }, (_, row) => {
+			let tallest = 1;
+			for (const placed of grid.placed) {
+				if (placed.row !== row || placed.rowSpan !== 1) continue;
+				tallest = Math.max(tallest, laid.get(placed)?.length ?? 1);
+			}
+			return tallest;
+		});
+		for (const placed of grid.placed) {
+			if (placed.rowSpan === 1) continue;
+			const covered = heights
+				.slice(placed.row, placed.row + placed.rowSpan)
+				.reduce((total, height) => total + height, 0);
+			const needed = laid.get(placed)?.length ?? 1;
+			const last = placed.row + placed.rowSpan - 1;
+			const current = heights[last];
+			if (needed > covered && current !== undefined) {
+				heights[last] = current + (needed - covered);
+			}
+		}
+
+		// Where each row's text starts inside a cell that began above it.
+		const offsets = heights.map((_, row) =>
+			heights.slice(0, row).reduce((total, height) => total + height, 0),
+		);
+
+		return heights.map((height, row) => {
+			const out: string[] = [];
+			for (let line = 0; line < height; line += 1) {
+				const parts: string[] = [];
+				let column = 0;
+				while (column < grid.columns) {
+					const placed = grid.owner[row]?.[column];
+					if (placed === undefined) {
+						// Nothing claims this slot: an empty cell of one column.
+						parts.push(" ".repeat(widths[column] ?? 0));
+						column += 1;
+						continue;
+					}
+					if (placed.column !== column) {
+						// Already emitted as part of a spanning cell.
+						column += 1;
+						continue;
+					}
+					const width = spanWidth(widths, placed.column, placed.colSpan);
+					const inner = Math.max(1, width - PADDING * 2);
+					const lines = laid.get(placed) ?? [];
+					const within =
+						(offsets[row] ?? 0) - (offsets[placed.row] ?? 0) + line;
+					const total = heights
+						.slice(placed.row, placed.row + placed.rowSpan)
+						.reduce((sum, value) => sum + value, 0);
+					const text = pick(lines, within, total, placed.cell.vAlign ?? "top");
+					parts.push(
+						" ".repeat(PADDING) +
+							align(text, inner, placed.cell.hAlign ?? "left") +
+							" ".repeat(PADDING),
+					);
+					column += placed.colSpan;
+				}
+				out.push(
+					paint(chars.left) +
+						parts.join(paint(chars.middle)) +
+						paint(chars.right),
+				);
+			}
+			return out;
+		});
 	}
 }
 
@@ -369,19 +447,68 @@ function hardWrap(line: string, width: number): string[] {
 	return pieces;
 }
 
-/** Walk a row, yielding each cell with the column it starts at and its span. */
-function* positioned(row: TableCell[]): Generator<[TableCell, number, number]> {
-	let at = 0;
-	for (const cell of row) {
-		const span = Math.max(1, cell.colSpan ?? 1);
-		yield [cell, at, span];
-		at += span;
-	}
+/** One cell, once it knows where it sits. */
+interface Placed {
+	cell: TableCell;
+	row: number;
+	column: number;
+	colSpan: number;
+	rowSpan: number;
 }
 
-/** How many columns a row occupies, spans included. */
-function spannedWidth(row: TableCell[]): number {
-	return row.reduce((total, cell) => total + Math.max(1, cell.colSpan ?? 1), 0);
+/** Every cell, placed, plus who owns each slot. */
+interface Grid {
+	columns: number;
+	rows: number;
+	placed: Placed[];
+	/** `owner[row][column]`, or undefined where nothing reaches. */
+	owner: Array<Array<Placed | undefined>>;
+}
+
+/**
+ * Place every cell, left to right, skipping slots a row above still holds.
+ *
+ * This is the whole of `rowSpan`: a cell that spans rows keeps its column
+ * busy below, so the next row's cells land one column further right than
+ * their position in the array suggests.
+ */
+function layout(rows: TableCell[][]): Grid {
+	const owner: Array<Array<Placed | undefined>> = rows.map(() => []);
+	const placed: Placed[] = [];
+	let columns = 0;
+
+	rows.forEach((cells, row) => {
+		let column = 0;
+		for (const cell of cells) {
+			// Walk past anything a spanning cell above already claimed.
+			while (owner[row]?.[column] !== undefined) column += 1;
+
+			const colSpan = Math.max(1, cell.colSpan ?? 1);
+			const rowSpan = Math.max(1, cell.rowSpan ?? 1);
+			const entry: Placed = { cell, row, column, colSpan, rowSpan };
+			placed.push(entry);
+
+			for (let r = row; r < row + rowSpan && r < rows.length; r += 1) {
+				const line = owner[r];
+				if (line === undefined) continue;
+				for (let c = column; c < column + colSpan; c += 1) line[c] = entry;
+			}
+			column += colSpan;
+			columns = Math.max(columns, column);
+		}
+	});
+
+	return { columns, rows: rows.length, placed, owner };
+}
+
+/** The width a cell occupies, the borders it swallows included. */
+function spanWidth(widths: number[], column: number, span: number): number {
+	return (
+		widths
+			.slice(column, column + span)
+			.reduce((total, width) => total + width, 0) +
+		(span - 1)
+	);
 }
 
 function border(

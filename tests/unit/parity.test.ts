@@ -278,3 +278,106 @@ describe("lumen > a keyed row", () => {
 		expect(table.getRows()).toEqual([["a", "b"]]);
 	});
 });
+
+describe("lumen > rowSpan", () => {
+	it("keeps its column busy below, so the next row shifts right", () => {
+		// The whole of rowSpan: `worker` is the FIRST cell of its row and
+		// still lands in the second column, because `prod` holds the first.
+		const table = new Table(silentColors(), renderer());
+		table
+			.head(["Env", "Service"])
+			.row([{ content: "prod", rowSpan: 2 }, "api"])
+			.row(["worker"])
+			.row(["dev", "cron"]);
+		const lines = table.prepare().map((line) => line.replace(/\s+/g, " "));
+
+		expect(lines[3]).toBe("│ prod │ api │");
+		// Empty first column, `worker` under `api`.
+		expect(lines[4]).toBe("│ │ worker │");
+		expect(lines[5]).toBe("│ dev │ cron │");
+	});
+
+	it("lays its text across the rows it covers", () => {
+		const table = new Table(silentColors(), renderer());
+		table
+			.columnWidths([18, 12])
+			.row([{ content: "one two three four", rowSpan: 2 }, "a"])
+			.row(["b"]);
+		const lines = table.prepare();
+		// Two rows of one line each, so the spanning cell gets two lines of
+		// text without making the table taller than its rows.
+		expect(lines).toHaveLength(4);
+		expect(lines[1]).toContain("a");
+		expect(lines[2]).toContain("b");
+		expect(lines[1]).toContain("one two three");
+		expect(lines[2]).toContain("four");
+	});
+
+	it("grows the last row it covers when its text still does not fit", () => {
+		const table = new Table(silentColors(), renderer());
+		table
+			.columnWidths([9, 8])
+			.row([{ content: "one two three four five six", rowSpan: 2 }, "a"])
+			.row(["b"]);
+		// Four lines of text over two rows: the second row took the overflow.
+		expect(table.prepare().length).toBeGreaterThan(4);
+	});
+
+	it("combines with colSpan", () => {
+		const table = new Table(silentColors(), renderer());
+		table.row([{ content: "corner", rowSpan: 2, colSpan: 2 }, "x"]).row(["y"]);
+		const lines = table.prepare().map((line) => line.replace(/\s+/g, " "));
+		expect(lines[1]).toBe("│ corner │ x │");
+		expect(lines[2]).toBe("│ │ y │");
+	});
+});
+
+describe("lumen > the failure a callback returns", () => {
+	it("marks a string the way upstream marks it", async () => {
+		const { Tasks } = await import("../../src/tasks.js");
+		const tasks = new Tasks(rawColors(), renderer());
+		let returned: unknown;
+		await tasks
+			.add("install", async (task) => {
+				returned = task.error("no network");
+				return returned as never;
+			})
+			.run();
+
+		// `{ message, isError: true }` for a string — what a caller that
+		// inspects the value expects to find.
+		expect(returned).toEqual({ message: "no network", isError: true });
+		expect(tasks.getState()).toBe("failed");
+	});
+
+	it("hands an Error back as itself, stack and all", async () => {
+		const { Tasks } = await import("../../src/tasks.js");
+		const tasks = new Tasks(rawColors(), renderer());
+		const original = new Error("no disk");
+		let returned: unknown;
+		await tasks
+			.add("write", async (task) => {
+				returned = task.error(original);
+				return returned as never;
+			})
+			.run();
+
+		expect(returned).toBe(original);
+		expect(tasks.tasks()[0]?.getError()).toBe(original);
+	});
+
+	it("takes a marked object returned without the task's help", async () => {
+		// A callback that builds the failure itself, which upstream allows.
+		const { Tasks } = await import("../../src/tasks.js");
+		const tasks = new Tasks(rawColors(), renderer());
+		const outcomes = await tasks
+			.add("check", async () => ({
+				message: "refused",
+				isError: true as const,
+			}))
+			.run();
+
+		expect(outcomes[0]?.state).toBe("failed");
+		expect(outcomes[0]?.message).toBe("refused");
+	});
+});

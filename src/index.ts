@@ -61,8 +61,12 @@ export {
 } from "./table.js";
 export {
 	Task,
+	type TaskCallback,
 	TaskContext,
+	type TaskError,
+	type TaskFailure,
 	type TaskOutcome,
+	type TaskResult,
 	type TaskState,
 	Tasks,
 	type TasksOptions,

@@ -17,6 +17,37 @@ import type { Renderer } from "./renderers.js";
 
 export type TaskState = "idle" | "running" | "succeeded" | "failed";
 
+/** A failure reported as a value rather than thrown. */
+export interface TaskError {
+	message: string;
+	isError: true;
+}
+
+/** What `task.error()` gives back: the Error itself, or the marked object. */
+export type TaskFailure<T extends string | Error> = T extends string
+	? TaskError
+	: T;
+
+/**
+ * What a task callback may return.
+ *
+ * A string is the success message, anything marked is the failure — the same
+ * three shapes upstream accepts, plus the task itself: `markAsSucceeded()`
+ * returns `this`, and `return task.markAsSucceeded('done')` is the natural
+ * thing to write. The task already carries its state, so it is ignored.
+ */
+export type TaskResult = string | Error | TaskError | Task | undefined;
+
+/** Is this what a callback returns to say it failed? */
+function isTaskError(value: unknown): value is TaskError {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"isError" in value &&
+		(value as { isError?: unknown }).isError === true
+	);
+}
+
 /**
  * One step: its state, and the API its callback uses to report progress.
  *
@@ -113,17 +144,22 @@ export class Task {
 	}
 
 	/**
-	 * Mark the task as failed and hand the Error back.
+	 * Mark the task as failed and hand the failure back.
 	 *
 	 * RETURNED from the callback rather than thrown, so an expected failure
 	 * reads as a value instead of control flow:
 	 *
 	 *     .add('install', async (task) => task.error('no network'))
+	 *
+	 * The shape follows upstream exactly: an `Error` comes back as itself, a
+	 * string comes back as `{ message, isError: true }`. A caller that only
+	 * returns it never sees the difference; one that inspects it would.
 	 */
-	error(reason: string | Error): Error {
+	error<T extends string | Error>(reason: T): TaskFailure<T> {
 		this.markAsFailed(reason);
-		const failure = this.#error;
-		return failure instanceof Error ? failure : new Error(String(reason));
+		return (
+			typeof reason === "string" ? { message: reason, isError: true } : reason
+		) as TaskFailure<T>;
 	}
 
 	#finish(): void {
@@ -147,6 +183,9 @@ export interface TaskOutcome {
 	error?: Error;
 }
 
+/** The callback a task runs. */
+export type TaskCallback = (task: Task) => Promise<TaskResult> | TaskResult;
+
 export interface TasksOptions {
 	/**
 	 * Mark each outcome with a glyph. Off, the words carry it alone — for a
@@ -167,10 +206,7 @@ export class Tasks {
 	#renderer: Renderer;
 	readonly #verbose: boolean;
 	readonly #icons: boolean;
-	readonly #entries: Array<{
-		task: Task;
-		work: (task: Task) => Promise<unknown>;
-	}> = [];
+	readonly #entries: Array<{ task: Task; work: TaskCallback }> = [];
 	readonly #outcomes: TaskOutcome[] = [];
 	#state: TaskState = "idle";
 
@@ -199,25 +235,17 @@ export class Tasks {
 		return this;
 	}
 
-	add(title: string, work: (task: Task) => Promise<unknown>): this {
+	add(title: string, work: TaskCallback): this {
 		this.#entries.push({ task: new Task(title), work });
 		return this;
 	}
 
 	/** Add it only when the condition holds — a step behind a flag. */
-	addIf(
-		condition: boolean,
-		title: string,
-		work: (task: Task) => Promise<unknown>,
-	): this {
+	addIf(condition: boolean, title: string, work: TaskCallback): this {
 		return condition ? this.add(title, work) : this;
 	}
 
-	addUnless(
-		condition: boolean,
-		title: string,
-		work: (task: Task) => Promise<unknown>,
-	): this {
+	addUnless(condition: boolean, title: string, work: TaskCallback): this {
 		return condition ? this : this.add(title, work);
 	}
 
@@ -258,13 +286,20 @@ export class Tasks {
 			try {
 				const returned = await work(task);
 				if (task.getState() === "running") {
-					// The callback reported nothing: a returned Error still means
-					// failure, anything else means success.
+					// The callback reported nothing through the task itself, so
+					// its RETURN says what happened: an Error or a marked
+					// object is a failure, a string is the success message.
 					if (returned instanceof Error) task.markAsFailed(returned);
-					else
+					else if (returned instanceof Task) {
+						// It reported through itself; nothing to read here.
+						task.markAsSucceeded();
+					} else if (isTaskError(returned)) {
+						task.markAsFailed(new Error(returned.message));
+					} else {
 						task.markAsSucceeded(
 							returned === undefined ? undefined : String(returned),
 						);
+					}
 				}
 			} catch (error) {
 				task.markAsFailed(error);
