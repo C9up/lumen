@@ -54,7 +54,9 @@ export {
 	InvalidColumnError,
 	Table,
 	type TableCell,
+	type TableChars,
 	type TableInput,
+	type TableOptions,
 } from "./table.js";
 export {
 	Task,

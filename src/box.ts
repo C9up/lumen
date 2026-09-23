@@ -28,11 +28,13 @@ export class Box {
 	constructor(
 		colors: Colors,
 		renderer: Renderer,
-		options: { pointer?: boolean } = {},
+		options: { pointer?: boolean; icons?: boolean } = {},
 	) {
 		this.#colors = colors;
 		this.#renderer = renderer;
-		this.#withPointer = options.pointer ?? false;
+		// `icons: false` drops the pointer for a terminal whose font has none —
+		// the same switch upstream puts on instructions.
+		this.#withPointer = (options.pointer ?? false) && options.icons !== false;
 	}
 
 	getColors(): Colors {

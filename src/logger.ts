@@ -28,6 +28,13 @@ export interface MessageOptions {
 	suffix?: string | number;
 	/** A `Date.now()` taken before the work; the elapsed time is appended. */
 	startTime?: number;
+	/**
+	 * Build the line but do not write it.
+	 *
+	 * For a caller that decides per call — a `--quiet` flag threaded through
+	 * rather than a second logger.
+	 */
+	silent?: boolean;
 }
 
 export interface LoggerOptions {
@@ -139,18 +146,22 @@ export class Logger {
 	}
 
 	success(message: string, options: MessageOptions = {}): void {
+		if (options.silent === true) return;
 		this.#renderer.log(this.prepare("success", message, options), "stdout");
 	}
 
 	info(message: string, options: MessageOptions = {}): void {
+		if (options.silent === true) return;
 		this.#renderer.log(this.prepare("info", message, options), "stdout");
 	}
 
 	warning(message: string, options: MessageOptions = {}): void {
+		if (options.silent === true) return;
 		this.#renderer.log(this.prepare("warning", message, options), "stderr");
 	}
 
 	error(message: string | Error, options: MessageOptions = {}): void {
+		if (options.silent === true) return;
 		this.#renderer.log(
 			this.prepare("error", messageOf(message), options),
 			"stderr",
@@ -167,6 +178,7 @@ export class Logger {
 
 	/** Only prints when DEBUG is set — the usual escape hatch for noisy detail. */
 	debug(message: string, options: MessageOptions = {}): void {
+		if (options.silent === true) return;
 		if (process.env.DEBUG === undefined || process.env.DEBUG === "") return;
 		this.#renderer.log(this.prepare("debug", message, options), "stdout");
 	}
@@ -203,6 +215,7 @@ export class Logger {
 		return new Spinner(
 			() => this.prepare("await", message, options),
 			this.#renderer,
+			options.silent === true,
 		);
 	}
 
@@ -395,14 +408,17 @@ export class Spinner {
 	readonly #renderer: Renderer;
 	#timer: ReturnType<typeof setInterval> | undefined;
 	#writer: ((line: string) => void) | undefined;
+	readonly #silent: boolean;
 	#frame = 0;
 
-	constructor(render: () => string, renderer: Renderer) {
+	constructor(render: () => string, renderer: Renderer, silent = false) {
 		this.#render = render;
 		this.#renderer = renderer;
+		this.#silent = silent;
 	}
 
 	start(): this {
+		if (this.#silent) return this;
 		if (!this.#animatable()) {
 			this.#renderer.log(this.#render(), "stdout");
 			return this;
@@ -418,6 +434,7 @@ export class Spinner {
 	}
 
 	update(render: string | (() => string)): this {
+		if (this.#silent) return this;
 		this.#render = typeof render === "string" ? () => render : render;
 		this.#frame = 0;
 		if (this.#animatable()) this.#draw();

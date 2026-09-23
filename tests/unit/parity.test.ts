@@ -99,17 +99,21 @@ describe("lumen > Spinner.tap", () => {
 
 describe("lumen > Table.columnWidths", () => {
 	it("uses the given widths instead of measuring", () => {
+		// The width is the whole column, padding included — what `colWidths`
+		// means upstream.
 		const table = new Table(silentColors(), renderer());
 		table.columnWidths([10]).row(["a", "b"]).row(["cc", "d"]);
-		const [first] = table.prepare();
-		expect(first).toBe("a           b");
+		expect(table.prepare()[0]).toBe("┌──────────┬─────┐");
 	});
 
-	it("honours a width smaller than the content rather than widening it back", () => {
+	it("wraps to a width smaller than the content rather than widening back", () => {
 		// The caller asked for a shape; silently undoing it defeats asking.
 		const table = new Table(silentColors(), renderer());
-		table.columnWidths([2]).row(["a-long-cell", "b"]);
-		expect(table.prepare()[0]).toBe("a-long-cell  b");
+		table.columnWidths([7]).row(["a-long-cell", "b"]);
+		const lines = table.prepare();
+		expect(lines[0]).toBe("┌───────┬─────┐");
+		// The cell did not widen the column; it wrapped inside it.
+		expect(lines.length).toBeGreaterThan(3);
 	});
 
 	it("refuses a width that is not a column count", () => {
@@ -120,7 +124,8 @@ describe("lumen > Table.columnWidths", () => {
 	it("takes fullWidth(false) back", () => {
 		const table = new Table(silentColors(), renderer());
 		table.row(["a", "b"]).fullWidth().fullWidth(false);
-		expect(stringWidth(table.prepare()[0] ?? "")).toBe(4);
+		// Two columns of one character, four of padding each, three borders.
+		expect(stringWidth(table.prepare()[0] ?? "")).toBe(13);
 	});
 });
 
@@ -215,5 +220,45 @@ describe("lumen > a run as data", () => {
 			"kept",
 			"also kept",
 		]);
+	});
+});
+
+describe("lumen > the switches upstream exposes", () => {
+	it("builds a message and writes nothing when it is silent", async () => {
+		// A `--quiet` flag threaded through, rather than a second logger.
+		const { Logger } = await import("../../src/logger.js");
+		const target = renderer();
+		const logger = new Logger(rawColors(), target);
+		logger.success("a", { silent: true });
+		logger.warning("b", { silent: true });
+		logger.error("c", { silent: true });
+		logger.await("d", { silent: true }).start().stop();
+		expect(target.getLogs()).toEqual([]);
+
+		logger.success("visible");
+		expect(target.getLogs()).toHaveLength(1);
+	});
+
+	it("drops the task glyphs when icons are off", async () => {
+		const { Tasks } = await import("../../src/tasks.js");
+		const target = renderer();
+		await new Tasks(rawColors(), target, { icons: false })
+			.add("one", async () => "done")
+			.run();
+		const line = target.getLogs()[0]?.message ?? "";
+		expect(line).not.toContain("✔");
+		expect(line.startsWith("one ")).toBe(true);
+	});
+
+	it("drops the instructions pointer when icons are off", () => {
+		const plain = new Box(rawColors(), renderer(), {
+			pointer: true,
+			icons: false,
+		})
+			.add("cd my-app")
+			.prepare()
+			.join("\n");
+		expect(plain).not.toContain("❯");
+		expect(plain).toContain("cd my-app");
 	});
 });

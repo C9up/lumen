@@ -149,6 +149,11 @@ export interface TaskOutcome {
 
 export interface TasksOptions {
 	/**
+	 * Mark each outcome with a glyph. Off, the words carry it alone — for a
+	 * terminal whose font has no box drawing.
+	 */
+	icons?: boolean;
+	/**
 	 * Print every progress message instead of only the last one.
 	 *
 	 * Minimal is the default: a hundred `Downloaded 42%` lines make a
@@ -161,6 +166,7 @@ export class Tasks {
 	#colors: Colors;
 	#renderer: Renderer;
 	readonly #verbose: boolean;
+	readonly #icons: boolean;
 	readonly #entries: Array<{
 		task: Task;
 		work: (task: Task) => Promise<unknown>;
@@ -172,6 +178,7 @@ export class Tasks {
 		this.#colors = colors;
 		this.#renderer = renderer;
 		this.#verbose = options.verbose === true;
+		this.#icons = options.icons !== false;
 	}
 
 	getColors(): Colors {
@@ -276,7 +283,7 @@ export class Tasks {
 				const detail = message === "" ? "" : ` ${this.#colors.dim(message)}`;
 				this.#write(
 					task,
-					`${this.#colors.green(icons.tick)} ${task.title}${detail} ${elapsed}`,
+					`${this.#mark(icons.tick, "green")}${task.title}${detail} ${elapsed}`,
 					"stdout",
 				);
 				continue;
@@ -295,7 +302,7 @@ export class Tasks {
 			});
 			this.#write(
 				task,
-				`${this.#colors.red(icons.cross)} ${task.title} ${this.#colors.dim(failure.message)} ${elapsed}`,
+				`${this.#mark(icons.cross, "red")}${task.title} ${this.#colors.dim(failure.message)} ${elapsed}`,
 				"stderr",
 			);
 			// Stop here: later steps normally build on this one.
@@ -305,6 +312,11 @@ export class Tasks {
 
 		this.#state = "succeeded";
 		return this.outcomes;
+	}
+
+	/** The glyph before an outcome, or nothing when icons are off. */
+	#mark(glyph: string, colour: "green" | "red"): string {
+		return this.#icons ? `${this.#colors[colour](glyph)} ` : "";
 	}
 
 	#write(task: Task, line: string, stream: "stdout" | "stderr"): void {

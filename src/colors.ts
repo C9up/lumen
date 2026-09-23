@@ -140,14 +140,26 @@ function buildChain(applied: readonly StyleName[], render: Renderer): Colors {
 export function ansiColors(): Colors {
 	return buildChain([], (applied, text) => {
 		if (applied.length === 0) return text;
-		// Opened outside-in and closed inside-out, so a nested chain restores
-		// what the outer one had rather than clearing everything.
-		const open = applied.map((style) => `\u001B[${STYLES[style][0]}m`).join("");
-		const close = [...applied]
-			.reverse()
-			.map((style) => `\u001B[${STYLES[style][1]}m`)
-			.join("");
-		return `${open}${text}${close}`;
+		// Applied inside-out, one style at a time, because each one has to
+		// repair what a NESTED call closed.
+		//
+		// `red("a " + yellow("b") + " c")` is the case: yellow ends with 39,
+		// which resets the foreground — including the red that was still
+		// meant to be running. Closing each style with its own code is not
+		// enough here, since both use 39. So before wrapping, every
+		// occurrence of THIS style's close code inside the text is followed
+		// by its open code again: the inner colour ends, the outer one
+		// resumes. It is what chalk does, and there is no cheaper fix that
+		// keeps nesting correct.
+		let out = text;
+		for (const style of [...applied].reverse()) {
+			const [openCode, closeCode] = STYLES[style];
+			const open = `\u001B[${openCode}m`;
+			const close = `\u001B[${closeCode}m`;
+			if (out.includes(close)) out = out.replaceAll(close, `${close}${open}`);
+			out = `${open}${out}${close}`;
+		}
+		return out;
 	});
 }
 

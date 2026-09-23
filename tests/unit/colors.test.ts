@@ -25,6 +25,31 @@ describe("lumen > colors", () => {
 		expect(stripAnsi(nested)).toBe("a b c");
 	});
 
+	it("restores the OUTER colour after a nested one ends", () => {
+		// The case a per-style close code does not cover: both foregrounds end
+		// with 39, so the inner yellow's close would cancel the red that is
+		// still meant to be running. An external audit caught this one.
+		const colors = ansiColors();
+		const nested = colors.red(`a ${colors.yellow("b")} c`);
+		expect(nested).toBe(
+			"\u001B[31ma \u001B[33mb\u001B[39m\u001B[31m c\u001B[39m",
+		);
+		// What it looks like: red, red, then red again after the yellow.
+		expect(stripAnsi(nested)).toBe("a b c");
+	});
+
+	it("restores an outer BACKGROUND the same way", () => {
+		const colors = ansiColors();
+		const nested = colors.bgBlue(`x ${colors.bgRed("y")} z`);
+		expect(nested).toContain("\u001B[49m\u001B[44m z");
+	});
+
+	it("repairs every occurrence, not only the first", () => {
+		const colors = ansiColors();
+		const nested = colors.red(`${colors.yellow("a")}-${colors.yellow("b")}-c`);
+		expect(nested.split("\u001B[39m\u001B[31m")).toHaveLength(3);
+	});
+
 	it("closes a chain inside-out", () => {
 		expect(ansiColors().bold.red("x")).toBe(
 			"\u001B[1m\u001B[31mx\u001B[39m\u001B[22m",

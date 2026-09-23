@@ -37,20 +37,62 @@ describe("lumen > Table", () => {
 		expect(stringWidth(wide ?? "")).toBe(stringWidth(narrow ?? ""));
 	});
 
-	it("draws a rule under the head", () => {
+	it("draws a border, with the head separated from the body", () => {
 		const table = new Table(silentColors(), renderer());
 		table.head(["Name", "Batch"]).row(["users", "1"]);
 		expect(table.prepare()).toEqual([
-			"Name   Batch",
-			"─────  ─────",
-			"users  1",
+			"┌─────────┬─────────┐",
+			"│  Name   │  Batch  │",
+			"├─────────┼─────────┤",
+			"│  users  │  1      │",
+			"└─────────┴─────────┘",
 		]);
+	});
+
+	it("joins the cells with a pipe in raw mode", () => {
+		// What a test asserts on: no border, no colour, no alignment.
+		const table = new Table(silentColors(), renderer(), { raw: true });
+		table.head(["Name", "Batch"]).row(["users", "1"]);
+		expect(table.prepare()).toEqual(["Name|Batch", "users|1"]);
+	});
+
+	it("takes the border glyphs a caller hands it", () => {
+		const table = new Table(silentColors(), renderer(), {
+			chars: { "top-left": "*", "top-right": "*", top: "=" },
+		});
+		table.row(["a"]);
+		expect(table.prepare()[0]).toBe("*=====*");
+	});
+
+	it("spans a cell across columns", () => {
+		const table = new Table(silentColors(), renderer());
+		table.row([{ content: "wide", colSpan: 2 }]).row(["a", "b"]);
+		const lines = table.prepare();
+		// The spanning row has no divider in the middle; the next one does.
+		expect(lines[1]?.split("│")).toHaveLength(3);
+		expect(lines[2]?.split("│")).toHaveLength(4);
+	});
+
+	it("wraps a cell too wide for its column and aligns it vertically", () => {
+		const table = new Table(silentColors(), renderer());
+		table
+			.columnWidths([10, 9])
+			.row(["one two three", { content: "x", vAlign: "bottom" }]);
+		const lines = table.prepare();
+		// Top border, three text lines, bottom border: the cell wrapped.
+		expect(lines).toHaveLength(5);
+		expect(lines[3]).toContain("three");
+		// vAlign bottom puts the one-line cell on the LAST text line; the
+		// default would have left it on the first.
+		expect(lines[3]).toContain("x");
+		expect(lines[1]).not.toContain("x");
 	});
 
 	it("honours per-cell alignment", () => {
 		const table = new Table(silentColors(), renderer());
 		table.row([{ content: "7", hAlign: "right" }, "x"]).row(["1000", "y"]);
-		expect(table.prepare()[0]).toBe("   7  x");
+		// Row one is line two: the top border comes first.
+		expect(table.prepare()[1]).toBe("│     7  │  x  │");
 	});
 
 	it("hands back the rows unpadded, for assertions", () => {

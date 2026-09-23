@@ -26,7 +26,7 @@ import {
 	type Stream,
 } from "./renderers.js";
 import { Steps } from "./steps.js";
-import { Table } from "./table.js";
+import { Table, type TableOptions } from "./table.js";
 import { Tasks, type TasksOptions } from "./tasks.js";
 
 export type UiMode = "normal" | "silent" | "raw";
@@ -122,8 +122,13 @@ export class Ui {
 		return this.#lastTable?.getHead() ?? [];
 	}
 
-	table(): Table {
-		const table = new Table(this.#colors, this.#renderer);
+	table(options: TableOptions = {}): Table {
+		// `raw` follows the mode unless the caller says otherwise: a table is
+		// asserted on by its cells, not by its borders.
+		const table = new Table(this.#colors, this.#renderer, {
+			raw: this.#mode === "raw",
+			...options,
+		});
 		this.#lastTable = table;
 		return table;
 	}
