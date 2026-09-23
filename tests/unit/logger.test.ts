@@ -86,6 +86,20 @@ describe("lumen > Logger decorations", () => {
 		expect(renderer.getLogs()[0]?.message).toMatch(/dim\(\(1\.5\ds\)\)$/);
 	});
 
+	it("takes an hrtime tuple, which is what upstream's example passes", () => {
+		// Subtracted from a number, a tuple gives NaN — and the line reads
+		// `(NaNm NaNs)`, which points at nothing.
+		const { logger, renderer } = build();
+		logger.success("migrated", { startTime: process.hrtime() });
+		expect(renderer.getLogs()[0]?.message).toMatch(/dim\(\(\d+ms\)\)$/);
+	});
+
+	it("takes an hrtime bigint too", () => {
+		const { logger, renderer } = build();
+		logger.success("migrated", { startTime: process.hrtime.bigint() });
+		expect(renderer.getLogs()[0]?.message).toMatch(/dim\(\(\d+ms\)\)$/);
+	});
+
 	it("keeps a sticky prefix on every message until it changes", () => {
 		const { logger, renderer } = build();
 		logger.prefix("worker").info("a");

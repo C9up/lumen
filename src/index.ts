@@ -23,7 +23,7 @@ export {
 	stripAnsi,
 	supportsColor,
 } from "./colors.js";
-export { formatDuration } from "./duration.js";
+export { elapsedSince, formatDuration, type StartTime } from "./duration.js";
 export {
 	type JustifyOptions,
 	justify,
@@ -57,6 +57,7 @@ export {
 	type TableChars,
 	type TableInput,
 	type TableOptions,
+	type TableRow,
 } from "./table.js";
 export {
 	Task,

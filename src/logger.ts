@@ -12,7 +12,7 @@
 
 import { stdout } from "node:process";
 import type { Colors, StyleName } from "./colors.js";
-import { formatDuration } from "./duration.js";
+import { elapsedSince, formatDuration, type StartTime } from "./duration.js";
 import {
 	ConsoleRenderer,
 	MemoryRenderer,
@@ -26,8 +26,14 @@ export interface MessageOptions {
 	prefix?: string | number;
 	/** Rendered dim yellow, in parentheses, after the message. */
 	suffix?: string | number;
-	/** A `Date.now()` taken before the work; the elapsed time is appended. */
-	startTime?: number;
+	/**
+	 * When the work started; the elapsed time is appended.
+	 *
+	 * Takes a `Date.now()`, a `process.hrtime()` tuple or a
+	 * `process.hrtime.bigint()` — upstream's examples use the tuple, and
+	 * subtracting one from a number would quietly render `(NaNm NaNs)`.
+	 */
+	startTime?: StartTime;
 	/**
 	 * Build the line but do not write it.
 	 *
@@ -247,7 +253,7 @@ export class Logger {
 		}
 
 		if (options.startTime !== undefined) {
-			const elapsed = formatDuration(Date.now() - options.startTime);
+			const elapsed = formatDuration(elapsedSince(options.startTime));
 			text = `${text} ${this.#colors.dim(`(${elapsed})`)}`;
 		}
 

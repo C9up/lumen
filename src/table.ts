@@ -28,6 +28,16 @@ export interface TableCell {
 export type TableInput = string | TableCell;
 
 /**
+ * A row.
+ *
+ * Either the cells, or ONE `{ heading: [cells] }` pair — the vertical shape
+ * upstream accepts, where the key becomes the row's own heading on the left.
+ */
+export type TableRow =
+	| readonly TableInput[]
+	| Record<string, readonly TableInput[]>;
+
+/**
  * The border glyphs, named as upstream names them so a `chars` override
  * written for it works here.
  */
@@ -129,8 +139,8 @@ export class Table {
 		return this;
 	}
 
-	row(cells: readonly TableInput[]): this {
-		this.#rows.push(cells.map(toCell));
+	row(cells: TableRow): this {
+		this.#rows.push(toRow(cells));
 		return this;
 	}
 
@@ -401,6 +411,21 @@ function pick(
 				? Math.floor((height - lines.length) / 2)
 				: 0;
 	return lines[index - offset] ?? "";
+}
+
+/**
+ * Flatten a row into cells.
+ *
+ * `{ Name: ["Ada"] }` becomes a bold heading cell followed by its values,
+ * which is how upstream renders a keyed row.
+ */
+function toRow(row: TableRow): TableCell[] {
+	if (Array.isArray(row)) return row.map(toCell);
+	const entries = Object.entries(row as Record<string, readonly TableInput[]>);
+	return entries.flatMap(([heading, cells]) => [
+		toCell(heading),
+		...cells.map(toCell),
+	]);
 }
 
 function toCell(input: TableInput): TableCell {

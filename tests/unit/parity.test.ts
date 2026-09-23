@@ -262,3 +262,19 @@ describe("lumen > the switches upstream exposes", () => {
 		expect(plain).toContain("cd my-app");
 	});
 });
+
+describe("lumen > a keyed row", () => {
+	it("puts the key on the left, as upstream's vertical shape does", () => {
+		const table = new Table(silentColors(), renderer());
+		table.row({ Name: ["Ada"] }).row({ Email: ["ada@acme.test"] });
+		const lines = table.prepare().map((line) => line.replace(/\s+/g, " "));
+		expect(lines[1]).toBe("│ Name │ Ada │");
+		expect(lines[2]).toBe("│ Email │ ada@acme.test │");
+	});
+
+	it("still takes a plain array", () => {
+		const table = new Table(silentColors(), renderer());
+		table.row(["a", "b"]);
+		expect(table.getRows()).toEqual([["a", "b"]]);
+	});
+});

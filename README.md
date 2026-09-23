@@ -61,8 +61,10 @@ same meaning, in every package:
 stays pipeable.
 
 Each message takes a `prefix` (dim, `%time%` interpolated), a `suffix` (dim
-yellow, in parentheses) and a `startTime` (a `Date.now()`, rendered as the
-elapsed time).
+yellow, in parentheses), a `silent` flag, and a `startTime` rendered as the
+elapsed time — a `Date.now()`, a `process.hrtime()` tuple or a
+`process.hrtime.bigint()`, because an example copied from elsewhere passes the
+tuple and subtracting it from a number renders `(NaNm NaNs)`.
 
 ## Colours on their own
 
