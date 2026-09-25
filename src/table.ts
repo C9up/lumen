@@ -483,8 +483,8 @@ function layout(rows: TableCell[][]): Grid {
 			// Walk past anything a spanning cell above already claimed.
 			while (owner[row]?.[column] !== undefined) column += 1;
 
-			const colSpan = Math.max(1, cell.colSpan ?? 1);
-			const rowSpan = Math.max(1, cell.rowSpan ?? 1);
+			const colSpan = readSpan(cell.colSpan, "colSpan");
+			const rowSpan = readSpan(cell.rowSpan, "rowSpan");
 			const entry: Placed = { cell, row, column, colSpan, rowSpan };
 			placed.push(entry);
 
@@ -499,6 +499,31 @@ function layout(rows: TableCell[][]): Grid {
 	});
 
 	return { columns, rows: rows.length, placed, owner };
+}
+
+/**
+ * A span, or a refusal.
+ *
+ * `Math.max(1, span)` accepted whatever it was given, and three values got
+ * through it: `Infinity` made the placement loop below never terminate — the
+ * process stops answering, with no error to read — while `NaN` and a
+ * fractional span left the grid's column count as `NaN` or a fraction, so
+ * every width computed from it was nonsense.
+ *
+ * Refused rather than clamped, matching `columnWidths` a few lines up: a span
+ * of `Infinity` is not a request for one column, it is a mistake, and turning
+ * it into a table that renders is how the mistake survives to the next reader.
+ * A deviation from cli-table3, which is permissive here; being permissive is
+ * what hangs.
+ */
+function readSpan(value: number | undefined, name: string): number {
+	if (value === undefined) return 1;
+	if (!Number.isInteger(value) || value < 1) {
+		throw new InvalidColumnError(
+			`${name} received ${value}, which is not a number of cells to span.`,
+		);
+	}
+	return value;
 }
 
 /** The width a cell occupies, the borders it swallows included. */

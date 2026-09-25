@@ -121,6 +121,33 @@ describe("lumen > Table.columnWidths", () => {
 		expect(() => table.columnWidths([-1])).toThrow(InvalidColumnError);
 	});
 
+	it("refuses a span that is not a number of cells", () => {
+		// `colSpan: Infinity` used to hang: the placement loop runs to
+		// `column + colSpan` and never gets there, so the process stops
+		// answering with nothing to read. `NaN` and a fraction were quieter —
+		// the column count became `NaN`, and every width derived from it
+		// followed.
+		for (const span of [Number.POSITIVE_INFINITY, Number.NaN, 1.5, 0, -1]) {
+			const table = new Table(silentColors(), renderer());
+			table.row([{ content: "wide", colSpan: span }, "b"]);
+			expect(() => table.prepare()).toThrow(InvalidColumnError);
+		}
+	});
+
+	it("refuses the same in a rowSpan", () => {
+		const table = new Table(silentColors(), renderer());
+		table.row([{ content: "tall", rowSpan: Number.NaN }, "b"]);
+		expect(() => table.prepare()).toThrow(InvalidColumnError);
+	});
+
+	it("still spans the cells it was actually asked for", () => {
+		const table = new Table(silentColors(), renderer());
+		table.row([{ content: "wide", colSpan: 2 }]).row(["a", "b"]);
+		const lines = table.prepare();
+		// One cell covering both columns, and the border between them gone.
+		expect(lines[1]).toContain("wide");
+	});
+
 	it("takes fullWidth(false) back", () => {
 		const table = new Table(silentColors(), renderer());
 		table.row(["a", "b"]).fullWidth().fullWidth(false);
