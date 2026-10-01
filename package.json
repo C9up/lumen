@@ -1,6 +1,6 @@
 {
   "name": "@c9up/lumen",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Lumen — terminal output for the Ream ecosystem: colours, logger, tables, boxes and task reports, with a raw mode that makes all of it assertable",
   "license": "MIT",
   "type": "module",
