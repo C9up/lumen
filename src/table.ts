@@ -11,7 +11,7 @@
  * row below the offending cell is out of line.
  */
 
-import { containStyles, sanitize } from "./ansi.js";
+import { ansiTokens, containStyles, sanitize } from "./ansi.js";
 import type { Colors } from "./colors.js";
 import { stringWidth, terminalWidth, wrap } from "./helpers.js";
 import type { Renderer } from "./renderers.js";
@@ -442,18 +442,34 @@ export class Table {
 	}
 }
 
-/** Cut a line into pieces no wider than `width`, never splitting a glyph. */
+/**
+ * Cut a line into pieces no wider than `width`, never splitting a glyph or an
+ * escape sequence — a colour code cut in two prints its tail as text. Styles
+ * that span the cut are carried over by `containStyles` afterwards.
+ *
+ * The width runs as a number: re-measuring the piece so far for every
+ * character made one long cell quadratic.
+ */
 function hardWrap(line: string, width: number): string[] {
 	if (stringWidth(line) <= width) return [line];
 	const pieces: string[] = [];
 	let current = "";
-	for (const character of line) {
-		if (stringWidth(current + character) > width) {
-			pieces.push(current);
-			current = character;
+	let used = 0;
+	for (const token of ansiTokens(line)) {
+		if (token.escape) {
+			current += token.text;
 			continue;
 		}
-		current += character;
+		for (const character of token.text) {
+			const size = stringWidth(character);
+			if (used + size > width && used > 0) {
+				pieces.push(current);
+				current = "";
+				used = 0;
+			}
+			current += character;
+			used += size;
+		}
 	}
 	if (current !== "") pieces.push(current);
 	return pieces;

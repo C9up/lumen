@@ -182,3 +182,83 @@ export function containStyles(lines: readonly string[]): string[] {
 		return `${start}${line}${styles.close()}`;
 	});
 }
+
+/*
+ * The escape-sequence grammar, ported from ansi-regex 6.6.0 (what upstream's
+ * strip-ansi and string-width use). Every alternative starts at an introducer
+ * and every payload stops at the next one, so a string of unterminated
+ * introducers is scanned once, not once per introducer.
+ */
+// ESC followed by a backslash, or the 8-bit ST.
+const ST = String.raw`(?:\u001B\\|\u009C)`;
+const STRING_CONTROLS = String.raw`\u0018\u001A\u001B\u0080-\u009F`;
+const OSC = String.raw`(?:\u001B\]|\u009D)[^\u0007${STRING_CONTROLS}]*(?:\u0007|${ST})`;
+const CONTROL_STRING = String.raw`(?:\u001B[PX^_k]|[\u0090\u0098\u009E\u009F])[^${STRING_CONTROLS}]*${ST}`;
+const LINUX_PALETTE = String.raw`\u001B\](?:P[\dA-Fa-f]{7}|R)(?:\u0007|${ST})?`;
+const CSI = String.raw`(?:\u001B\[|\u009B)[0-?]*[ -/]*[@-~]`;
+const ESCAPE = String.raw`\u001B(?:[ -/]+[0-~]|[\dA-PR-TZcf-oq-uy=><~|}])`;
+const ANSI = `${LINUX_PALETTE}|${OSC}|${CONTROL_STRING}|${CSI}|${ESCAPE}`;
+
+const ANSI_GLOBAL = new RegExp(ANSI, "g");
+
+/**
+ * Drop every escape sequence, leaving the visible text.
+ *
+ * Needed wherever a width is measured: a cell coloured green, or a hyperlink,
+ * carries codes that occupy no columns, and counting them shifts every column
+ * after it. Colour alone is not enough — an OSC 8 link counted as visible text
+ * pushed a table border twenty-four columns right.
+ */
+export function stripAnsi(text: string): string {
+	return text.replace(ANSI_GLOBAL, "");
+}
+
+/** A run of text, or one escape sequence. */
+export interface AnsiToken {
+	escape: boolean;
+	text: string;
+}
+
+/** The text cut into escape sequences and the runs between them. */
+export function ansiTokens(text: string): AnsiToken[] {
+	const tokens: AnsiToken[] = [];
+	let last = 0;
+	for (const match of text.matchAll(ANSI_GLOBAL)) {
+		const at = match.index;
+		if (at > last) tokens.push({ escape: false, text: text.slice(last, at) });
+		tokens.push({ escape: true, text: match[0] });
+		last = at + match[0].length;
+	}
+	if (last < text.length)
+		tokens.push({ escape: false, text: text.slice(last) });
+	return tokens;
+}
+
+/** The parameters of an SGR sequence, or undefined for anything else. */
+export function sgrParams(sequence: string): string | undefined {
+	if (!sequence.startsWith("\u001B[") || !sequence.endsWith("m")) {
+		return undefined;
+	}
+	const params = sequence.slice(2, -1);
+	return /^[0-9;:]*$/.test(params) ? params : undefined;
+}
+
+/**
+ * An OSC 8 hyperlink: the sequence that closes it when it opens one, an empty
+ * string when it IS the closing one, undefined when it is not a hyperlink.
+ */
+export function hyperlinkCloser(sequence: string): string | undefined {
+	const body = sequence.startsWith("\u001B]")
+		? sequence.slice(2)
+		: sequence.startsWith("\u009D")
+			? sequence.slice(1)
+			: undefined;
+	if (body === undefined || !body.startsWith("8;")) return undefined;
+	const terminator = body.endsWith("\u0007")
+		? "\u0007"
+		: body.endsWith("\u009C")
+			? "\u009C"
+			: "\u001B\\";
+	const url = body.slice(0, body.length - terminator.length).split(";")[2];
+	return url === undefined || url === "" ? "" : `\u001B]8;;${terminator}`;
+}

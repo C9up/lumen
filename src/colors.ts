@@ -12,6 +12,8 @@
 
 import { stdout } from "node:process";
 
+export { stripAnsi } from "./ansi.js";
+
 /**
  * Every style, with the code that opens it and the one that closes it.
  *
@@ -228,15 +230,4 @@ export function supportsColor(
 		);
 	}
 	return stream.isTTY === true;
-}
-
-/**
- * Drop the SGR escapes, leaving the visible text.
- *
- * Needed wherever a width is measured: a cell coloured green carries codes
- * that occupy no columns, and counting them shifts every column after it.
- */
-export function stripAnsi(text: string): string {
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: matching ANSI escapes is the point
-	return text.replace(/\u001B\[[0-9;]*m/g, "");
 }

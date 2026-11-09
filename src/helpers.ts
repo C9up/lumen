@@ -9,7 +9,13 @@
  */
 
 import { stdout } from "node:process";
-import { stripAnsi } from "./colors.js";
+import {
+	ansiTokens,
+	hyperlinkCloser,
+	SgrStyles,
+	sgrParams,
+	stripAnsi,
+} from "./ansi.js";
 
 export { type SanitizeOptions, sanitize } from "./ansi.js";
 
@@ -206,30 +212,141 @@ function truncateOne(
 	// No room for anything but the marker — and not even that, at zero.
 	if (maxWidth <= markerWidth) return maxWidth <= 0 ? "" : char;
 	const budget = maxWidth - markerWidth;
-	if (position === "start")
-		return `${char}${sliceToWidth(text, budget, "end")}`;
-	if (position === "end")
-		return `${sliceToWidth(text, budget, "start")}${char}`;
+	// The marker goes INSIDE the styles that end or start the cut, so a red
+	// value cut short is followed by a red ellipsis — what cli-truncate does.
+	if (position === "start") {
+		const right = sliceToWidth(text, budget, "end");
+		const at = leadingSgrEnd(right);
+		return `${right.slice(0, at)}${char}${right.slice(at)}`;
+	}
+	if (position === "end") {
+		const left = sliceToWidth(text, budget, "start");
+		const at = trailingSgrStart(left);
+		return `${left.slice(0, at)}${char}${left.slice(at)}`;
+	}
 	const left = Math.ceil(budget / 2);
 	return `${sliceToWidth(text, left, "start")}${char}${sliceToWidth(text, budget - left, "end")}`;
 }
 
-/** Take `width` columns from one end, never splitting a code point. */
+/** One visible character or one escape sequence, with the columns it takes. */
+interface Piece {
+	text: string;
+	width: number;
+	escape: boolean;
+}
+
+function pieces(text: string): Piece[] {
+	const out: Piece[] = [];
+	for (const token of ansiTokens(text)) {
+		if (token.escape) {
+			out.push({ text: token.text, width: 0, escape: true });
+			continue;
+		}
+		for (const character of token.text) {
+			const code = character.codePointAt(0);
+			const width = code === undefined ? 0 : codePointWidth(code);
+			out.push({ text: character, width, escape: false });
+		}
+	}
+	return out;
+}
+
+/** The styles and the hyperlink a run of escape sequences leaves open. */
+class OpenState {
+	readonly styles = new SgrStyles();
+	#link: { open: string; close: string } | undefined;
+
+	track(sequence: string): void {
+		const params = sgrParams(sequence);
+		if (params !== undefined) {
+			this.styles.apply(params);
+			return;
+		}
+		const closer = hyperlinkCloser(sequence);
+		if (closer === undefined) return;
+		this.#link = closer === "" ? undefined : { open: sequence, close: closer };
+	}
+
+	reopen(): string {
+		return `${this.styles.reopen()}${this.#link?.open ?? ""}`;
+	}
+
+	close(): string {
+		return `${this.#link?.close ?? ""}${this.styles.close()}`;
+	}
+}
+
+/**
+ * Take `width` columns from one end, never splitting a code point, and keep
+ * the escape sequences: whatever is open at the cut is closed after it (or
+ * reopened before it), so a red value stays red — the slice-ansi contract.
+ */
 function sliceToWidth(
 	text: string,
 	width: number,
 	from: "start" | "end",
 ): string {
-	const characters = [...stripAnsi(text)];
-	const ordered = from === "start" ? characters : [...characters].reverse();
-	const taken: string[] = [];
-	let used = 0;
-	for (const character of ordered) {
-		const code = character.codePointAt(0);
-		const size = code === undefined ? 0 : codePointWidth(code);
-		if (used + size > width) break;
-		used += size;
-		taken.push(character);
+	const all = pieces(text);
+	if (from === "start") {
+		const state = new OpenState();
+		let out = "";
+		let used = 0;
+		for (const piece of all) {
+			if (piece.escape) {
+				state.track(piece.text);
+				out += piece.text;
+				continue;
+			}
+			if (used + piece.width > width) break;
+			used += piece.width;
+			out += piece.text;
+		}
+		return `${out}${state.close()}`;
 	}
-	return from === "start" ? taken.join("") : taken.reverse().join("");
+
+	// From the end: find where the kept tail starts, then replay what comes
+	// before it to know which styles are running there.
+	let start = all.length;
+	let used = 0;
+	for (let index = all.length - 1; index >= 0; index -= 1) {
+		const piece = all[index];
+		if (piece === undefined) continue;
+		if (!piece.escape) {
+			if (used + piece.width > width) break;
+			used += piece.width;
+		}
+		start = index;
+	}
+	const state = new OpenState();
+	for (const piece of all.slice(0, start)) {
+		if (piece.escape) state.track(piece.text);
+	}
+	return `${state.reopen()}${all
+		.slice(start)
+		.map((piece) => piece.text)
+		.join("")}`;
+}
+
+/** Where the run of SGR sequences ending the text starts. */
+function trailingSgrStart(text: string): number {
+	let start = text.length;
+	while (start > 0 && text[start - 1] === "m") {
+		const open = text.lastIndexOf("\u001B[", start - 1);
+		if (open === -1 || sgrParams(text.slice(open, start)) === undefined) break;
+		start = open;
+	}
+	return start;
+}
+
+/** Where the run of SGR sequences opening the text ends. */
+function leadingSgrEnd(text: string): number {
+	let end = 0;
+	while (text.startsWith("\u001B[", end)) {
+		const close = text.indexOf("m", end);
+		if (close === -1 || sgrParams(text.slice(end, close + 1)) === undefined) {
+			break;
+		}
+		end = close + 1;
+	}
+	return end;
 }
