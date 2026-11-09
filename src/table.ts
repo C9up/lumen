@@ -13,8 +13,9 @@
 
 import { ansiTokens, containStyles, sanitize } from "./ansi.js";
 import type { Colors } from "./colors.js";
-import { stringWidth, terminalWidth, wrap } from "./helpers.js";
+import { terminalWidth, wrap } from "./helpers.js";
 import type { Renderer } from "./renderers.js";
+import { graphemes, graphemeWidth, stringWidth } from "./width.js";
 
 /** One cell, with the layout hints upstream accepts. */
 export interface TableCell {
@@ -460,8 +461,8 @@ function hardWrap(line: string, width: number): string[] {
 			current += token.text;
 			continue;
 		}
-		for (const character of token.text) {
-			const size = stringWidth(character);
+		for (const character of graphemes(token.text)) {
+			const size = graphemeWidth(character);
 			if (used + size > width && used > 0) {
 				pieces.push(current);
 				current = "";

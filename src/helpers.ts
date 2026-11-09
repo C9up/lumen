@@ -9,97 +9,11 @@
  */
 
 import { stdout } from "node:process";
-import {
-	ansiTokens,
-	hyperlinkCloser,
-	SgrStyles,
-	sgrParams,
-	stripAnsi,
-} from "./ansi.js";
+import { ansiTokens, hyperlinkCloser, SgrStyles, sgrParams } from "./ansi.js";
+import { graphemes, graphemeWidth, stringWidth } from "./width.js";
 
 export { type SanitizeOptions, sanitize } from "./ansi.js";
-
-/**
- * Code point ranges that take TWO columns (East Asian Wide and Fullwidth,
- * plus the emoji blocks that render wide everywhere).
- *
- * KNOWN LIMIT — this is the common set, not the full Unicode EastAsianWidth
- * table. A rare wide code point outside these ranges is measured as one column
- * and shifts its row by one. Widening the table is additive; pulling in a
- * dependency to carry the whole of it is not worth the install weight for a
- * CLI.
- */
-const WIDE_RANGES: ReadonlyArray<readonly [number, number]> = [
-	[0x1100, 0x115f], // Hangul Jamo
-	[0x2329, 0x232a], // angle brackets
-	[0x2e80, 0x303e], // CJK radicals … symbols
-	[0x3041, 0x33ff], // Hiragana … CJK compatibility
-	[0x3400, 0x4dbf], // CJK extension A
-	[0x4e00, 0x9fff], // CJK unified ideographs
-	[0xa000, 0xa4cf], // Yi
-	[0xa960, 0xa97f], // Hangul Jamo extended-A
-	[0xac00, 0xd7a3], // Hangul syllables
-	[0xf900, 0xfaff], // CJK compatibility ideographs
-	[0xfe10, 0xfe19], // vertical forms
-	[0xfe30, 0xfe6f], // CJK compatibility forms
-	[0xff00, 0xff60], // fullwidth forms
-	[0xffe0, 0xffe6], // fullwidth signs
-	[0x1f300, 0x1f64f], // emoji: symbols and people
-	[0x1f680, 0x1f6ff], // emoji: transport
-	[0x1f900, 0x1f9ff], // emoji: supplemental
-	[0x20000, 0x2fffd], // CJK extension B+
-	[0x30000, 0x3fffd], // CJK extension G+
-];
-
-/**
- * Code points that take NO column: combining marks, variation selectors and
- * the zero-width joiner that glues an emoji sequence together.
- */
-const ZERO_WIDTH_RANGES: ReadonlyArray<readonly [number, number]> = [
-	[0x0300, 0x036f], // combining diacritical marks
-	[0x0483, 0x0489],
-	[0x0591, 0x05bd],
-	[0x0610, 0x061a],
-	[0x064b, 0x065f],
-	[0x0e31, 0x0e31],
-	[0x0e34, 0x0e3a],
-	[0x1ab0, 0x1aff], // combining diacritical marks extended
-	[0x1dc0, 0x1dff], // combining diacritical marks supplement
-	[0x200b, 0x200f], // zero-width space … RTL mark
-	[0x20d0, 0x20ff], // combining marks for symbols
-	[0xfe00, 0xfe0f], // variation selectors
-	[0xfe20, 0xfe2f], // combining half marks
-	[0xfeff, 0xfeff], // BOM
-];
-
-function inRanges(
-	code: number,
-	ranges: ReadonlyArray<readonly [number, number]>,
-): boolean {
-	return ranges.some(([start, end]) => code >= start && code <= end);
-}
-
-/** How many columns one code point occupies. */
-function codePointWidth(code: number): number {
-	// C0/C1 controls draw nothing (a tab is expanded before it gets here).
-	if (code < 0x20 || (code >= 0x7f && code < 0xa0)) return 0;
-	if (inRanges(code, ZERO_WIDTH_RANGES)) return 0;
-	if (inRanges(code, WIDE_RANGES)) return 2;
-	return 1;
-}
-
-/**
- * The number of terminal columns this string occupies, escape codes excluded.
- */
-export function stringWidth(text: string): number {
-	let width = 0;
-	for (const character of stripAnsi(text)) {
-		const code = character.codePointAt(0);
-		if (code === undefined) continue;
-		width += codePointWidth(code);
-	}
-	return width;
-}
+export { stringWidth } from "./width.js";
 
 /** Columns available, or 80 when the output is not a terminal. */
 export function terminalWidth(): number {
@@ -242,10 +156,8 @@ function pieces(text: string): Piece[] {
 			out.push({ text: token.text, width: 0, escape: true });
 			continue;
 		}
-		for (const character of token.text) {
-			const code = character.codePointAt(0);
-			const width = code === undefined ? 0 : codePointWidth(code);
-			out.push({ text: character, width, escape: false });
+		for (const segment of graphemes(token.text)) {
+			out.push({ text: segment, width: graphemeWidth(segment), escape: false });
 		}
 	}
 	return out;

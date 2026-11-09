@@ -136,9 +136,12 @@ failure. Here `ui.table()` hands them over at construction; `useColors()` /
 
 `@c9up/lumen/helpers` has the primitives the widgets are built on —
 `stringWidth`, `justify`, `wrap`, `truncate`, `terminalWidth`. `stringWidth`
-ignores escape codes, gives a combining accent no width and counts a CJK glyph
-or an emoji as two columns; measuring with `String.length` is how a table with
-one emoji in it becomes ragged for every row below.
+ignores escape codes (hyperlinks and cursor moves included), gives a combining
+accent no width and counts a CJK glyph or an emoji as two columns. It measures
+per grapheme, against the full Unicode East Asian Width table: a skin-toned
+thumbs-up or a ZWJ family is one wide glyph, not four columns of code points.
+Measuring with `String.length` is how a table with one emoji in it becomes
+ragged for every row below.
 
 ## License
 
