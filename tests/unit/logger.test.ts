@@ -7,10 +7,10 @@
  * `yellow(warn)` instead of a soup of escape codes.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { rawColors } from "../../src/colors.js";
 import { Action, Logger, Spinner } from "../../src/logger.js";
-import { MemoryRenderer } from "../../src/renderers.js";
+import { ConsoleRenderer, MemoryRenderer } from "../../src/renderers.js";
 
 function build(options = {}): { logger: Logger; renderer: MemoryRenderer } {
 	const renderer = new MemoryRenderer();
@@ -200,5 +200,96 @@ describe("lumen > Spinner", () => {
 		expect(renderer.getLogs()[0]?.message).toBe(
 			"[ cyan(wait) ] fetching dim(yellow((npm)))",
 		);
+	});
+});
+
+describe("lumen > Spinner state", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("animates once however many times start() is called", () => {
+		// A second start() used to create a second interval and keep only the
+		// last handle: stop() cleared that one, the first redrew forever.
+		vi.useFakeTimers();
+		const frames: string[] = [];
+		const spinner = new Spinner(() => "installing", new MemoryRenderer()).tap(
+			(line) => frames.push(line),
+		);
+		spinner.start();
+		spinner.start();
+		vi.advanceTimersByTime(Spinner.INTERVAL * 3);
+		expect(frames).toHaveLength(4);
+		spinner.stop();
+		const atStop = frames.length;
+		vi.advanceTimersByTime(Spinner.INTERVAL * 10);
+		expect(frames).toHaveLength(atStop);
+	});
+
+	it("draws nothing on update() once stopped, or before it started", () => {
+		vi.useFakeTimers();
+		const frames: string[] = [];
+		const spinner = new Spinner(() => "a", new MemoryRenderer()).tap((line) =>
+			frames.push(line),
+		);
+		spinner.update("too early");
+		expect(frames).toEqual([]);
+		spinner.start();
+		spinner.stop();
+		spinner.update("too late");
+		vi.advanceTimersByTime(Spinner.INTERVAL * 5);
+		expect(frames).toEqual(["a .  "]);
+	});
+
+	it("does the same without a terminal to animate", () => {
+		const renderer = new MemoryRenderer();
+		const spinner = new Spinner(() => "a", renderer);
+		spinner.update("too early");
+		spinner.start();
+		spinner.start();
+		spinner.stop();
+		spinner.update("too late");
+		expect(renderer.getLogs().map((entry) => entry.message)).toEqual(["a"]);
+	});
+
+	it("settles on the full frame when it stops on a terminal", () => {
+		vi.useFakeTimers();
+		const calls: string[] = [];
+		class Recording extends ConsoleRenderer {
+			override logUpdate(message: string): void {
+				calls.push(`update ${message}`);
+			}
+			override logUpdatePersist(): void {
+				calls.push("persist");
+			}
+		}
+		const wasTTY = process.stdout.isTTY;
+		process.stdout.isTTY = true;
+		try {
+			const spinner = new Spinner(() => "a", new Recording()).start();
+			vi.advanceTimersByTime(Spinner.INTERVAL);
+			spinner.stop();
+		} finally {
+			process.stdout.isTTY = wasTTY;
+		}
+		expect(calls).toEqual([
+			"update a .  ",
+			"update a .. ",
+			"update a ...",
+			"persist",
+		]);
+	});
+
+	it("cannot be restarted once stopped", () => {
+		vi.useFakeTimers();
+		const frames: string[] = [];
+		const spinner = new Spinner(() => "a", new MemoryRenderer()).tap((line) =>
+			frames.push(line),
+		);
+		spinner.start();
+		spinner.stop();
+		spinner.start();
+		vi.advanceTimersByTime(Spinner.INTERVAL * 5);
+		expect(frames).toEqual(["a .  "]);
 	});
 });

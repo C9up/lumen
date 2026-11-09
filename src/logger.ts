@@ -427,6 +427,12 @@ export class Spinner {
 	#writer: ((line: string) => void) | undefined;
 	readonly #silent: boolean;
 	#frame = 0;
+	/**
+	 * Drives everything, as upstream's does: start() only from idle, update()
+	 * only while running. Without it a second start() leaked an interval that
+	 * kept redrawing over whatever was printed after stop().
+	 */
+	#state: "idle" | "running" | "stopped" = "idle";
 
 	constructor(render: () => string, renderer: Renderer, silent = false) {
 		this.#render = render;
@@ -435,7 +441,8 @@ export class Spinner {
 	}
 
 	start(): this {
-		if (this.#silent) return this;
+		if (this.#silent || this.#state !== "idle") return this;
+		this.#state = "running";
 		if (!this.#animatable()) {
 			this.#renderer.log(this.#line(), "stdout");
 			return this;
@@ -451,7 +458,7 @@ export class Spinner {
 	}
 
 	update(render: string | (() => string)): this {
-		if (this.#silent) return this;
+		if (this.#silent || this.#state !== "running") return this;
 		this.#render = typeof render === "string" ? () => render : render;
 		this.#frame = 0;
 		if (this.#animatable()) this.#draw();
@@ -472,9 +479,14 @@ export class Spinner {
 	}
 
 	stop(): void {
+		this.#state = "stopped";
 		if (this.#timer === undefined) return;
 		clearInterval(this.#timer);
 		this.#timer = undefined;
+		// A tapped spinner's output belongs to the caller. Otherwise the line
+		// settles on the full `...` frame, as upstream leaves it.
+		if (this.#writer !== undefined) return;
+		this.#renderer.logUpdate(`${this.#line()} ${Spinner.FRAMES[2] ?? ""}`);
 		this.#renderer.logUpdatePersist();
 	}
 
