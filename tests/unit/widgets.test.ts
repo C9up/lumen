@@ -183,7 +183,7 @@ describe("lumen > Tasks", () => {
 		const target = renderer();
 		const outcomes = await new Tasks(rawColors(), target)
 			.add("first", async () => "done")
-			.add("second", async () => undefined)
+			.add("second", async (task) => task.markAsSucceeded())
 			.run();
 
 		expect(outcomes.map((outcome) => [outcome.title, outcome.state])).toEqual([
@@ -201,6 +201,7 @@ describe("lumen > Tasks", () => {
 			.add("second", async (task) => task.error("no disk space"))
 			.add("third", async () => {
 				ranThird = true;
+				return "ran";
 			})
 			.run();
 
@@ -228,6 +229,7 @@ describe("lumen > Tasks", () => {
 			.add("download", async (task) => {
 				task.update("10%");
 				task.update("100%");
+				return task.markAsSucceeded();
 			})
 			.run();
 		// One line, not one per percent.
@@ -239,9 +241,78 @@ describe("lumen > Tasks", () => {
 			.add("download", async (task) => {
 				task.update("10%");
 				task.update("100%");
+				return task.markAsSucceeded();
 			})
 			.run();
 		expect(loud.getLogs()).toHaveLength(3);
+	});
+});
+
+describe("lumen > Tasks run once", () => {
+	it("runs each callback once when run() is called concurrently", async () => {
+		let calls = 0;
+		const tasks = new Tasks(rawColors(), renderer()).add(
+			"migrate",
+			async () => {
+				calls += 1;
+				return "done";
+			},
+		);
+		const [first, second] = await Promise.all([tasks.run(), tasks.run()]);
+		expect(calls).toBe(1);
+		expect(first).toEqual(second);
+		expect(first).toHaveLength(1);
+	});
+
+	it("hands back the first outcomes on a later run() without re-running", async () => {
+		let calls = 0;
+		const target = renderer();
+		const tasks = new Tasks(rawColors(), target).add("migrate", async () => {
+			calls += 1;
+			return "done";
+		});
+		const first = await tasks.run();
+		const again = await tasks.run();
+		expect(calls).toBe(1);
+		expect(again).toEqual(first);
+		expect(target.getLogs()).toHaveLength(1);
+	});
+
+	it("prints each progress message once, however many runs were asked for", async () => {
+		const target = renderer();
+		const tasks = new Tasks(rawColors(), target, { verbose: true }).add(
+			"migrate",
+			async (task) => {
+				task.update("step");
+				return "done";
+			},
+		);
+		await Promise.all([tasks.run(), tasks.run()]);
+		await tasks.run();
+		expect(target.getLogs().map((entry) => entry.message)).toEqual([
+			"  dim(migrate: step)",
+			expect.stringMatching(/^green\(✔\) migrate dim\(done\)/),
+		]);
+	});
+
+	it("fails a callback that returns nothing, as upstream does", async () => {
+		// Only a string says the work succeeded. A forgotten `return` reading
+		// as success is how a half-done installer reports green.
+		let ranSecond = false;
+		const target = renderer();
+		const outcomes = await new Tasks(rawColors(), target)
+			.add("install", async () => undefined)
+			.add("next", async () => {
+				ranSecond = true;
+				return "ran";
+			})
+			.run();
+		expect(ranSecond).toBe(false);
+		expect(outcomes.map((outcome) => outcome.state)).toEqual(["failed"]);
+		expect(outcomes[0]?.message).toBe(
+			"the task returned no result: return a success message, or an Error",
+		);
+		expect(target.getLogs()[0]?.stream).toBe("stderr");
 	});
 });
 

@@ -175,7 +175,7 @@ describe("lumen > a run as data", () => {
 		const tasks = new Tasks(rawColors(), renderer());
 		tasks
 			.add("first", async (task) => task.markAsSucceeded("done"))
-			.add("second", async () => undefined);
+			.add("second", async () => "also done");
 
 		// Before the run: declared, idle, nothing measured.
 		expect(tasks.tasks().map((task) => task.getState())).toEqual([
@@ -204,6 +204,7 @@ describe("lumen > a run as data", () => {
 			.add("first", async (task) => task.markAsFailed(new Error("no disk")))
 			.add("second", async () => {
 				ranSecond = true;
+				return "ran";
 			})
 			.run();
 

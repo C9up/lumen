@@ -36,6 +36,9 @@ export type TaskFailure<T extends string | Error> = T extends string
  * three shapes upstream accepts, plus the task itself: `markAsSucceeded()`
  * returns `this`, and `return task.markAsSucceeded('done')` is the natural
  * thing to write. The task already carries its state, so it is ignored.
+ *
+ * `undefined` is allowed for a callback that already marked the task itself.
+ * Returned from one that did not, it fails the task, as upstream does.
  */
 export type TaskResult = string | Error | TaskError | Task | undefined;
 
@@ -176,6 +179,9 @@ export class Task {
 	}
 }
 
+const NO_RESULT =
+	"the task returned no result: return a success message, or an Error";
+
 /** The shape a caller reads off a finished run. */
 export interface TaskOutcome {
 	title: string;
@@ -212,6 +218,12 @@ export class Tasks {
 	readonly #entries: Array<{ task: Task; work: TaskCallback }> = [];
 	readonly #outcomes: TaskOutcome[] = [];
 	#state: TaskState = "idle";
+	/**
+	 * The one run. A second or concurrent `run()` gets this same promise, as
+	 * upstream's `run()` returns unless idle: re-running would execute every
+	 * side effect twice and stack a second verbose listener on each task.
+	 */
+	#run: Promise<TaskOutcome[]> | undefined;
 
 	constructor(colors: Colors, renderer: Renderer, options: TasksOptions = {}) {
 		this.#colors = colors;
@@ -267,7 +279,12 @@ export class Tasks {
 		return [...this.#outcomes];
 	}
 
-	async run(): Promise<TaskOutcome[]> {
+	run(): Promise<TaskOutcome[]> {
+		this.#run ??= this.#execute();
+		return this.#run;
+	}
+
+	async #execute(): Promise<TaskOutcome[]> {
 		this.#state = "running";
 		for (const { task, work } of this.#entries) {
 			if (this.#verbose) {
@@ -290,19 +307,17 @@ export class Tasks {
 				const returned = await work(task);
 				if (task.getState() === "running") {
 					// The callback reported nothing through the task itself, so
-					// its RETURN says what happened: an Error or a marked
-					// object is a failure, a string is the success message.
-					if (returned instanceof Error) task.markAsFailed(returned);
+					// its RETURN says what happened: a string is the success
+					// message, anything else a failure — upstream's rule, so a
+					// forgotten `return` does not report green.
+					if (typeof returned === "string") task.markAsSucceeded(returned);
 					else if (returned instanceof Task) {
 						// It reported through itself; nothing to read here.
 						task.markAsSucceeded();
-					} else if (isTaskError(returned)) {
+					} else if (returned instanceof Error) task.markAsFailed(returned);
+					else if (isTaskError(returned)) {
 						task.markAsFailed(new Error(returned.message));
-					} else {
-						task.markAsSucceeded(
-							returned === undefined ? undefined : String(returned),
-						);
-					}
+					} else task.markAsFailed(new Error(NO_RESULT));
 				}
 			} catch (error) {
 				task.markAsFailed(error);

@@ -123,6 +123,12 @@ await tasks.run()
 tasks.getState()   // 'succeeded' | 'failed'
 ```
 
+A callback succeeds by returning its success message (or the task it marked
+itself); an `Error`, `task.error(…)` or nothing at all fails it and stops the
+run, so a forgotten `return` never reports green. `run()` runs once: a second
+or concurrent call gets the same outcomes back without executing anything
+again.
+
 `addIf(condition, …)` and `addUnless(…)` declare a step behind a flag, and each
 `Task` carries `getState()`, `getDuration()`, `getError()`,
 `getSuccessMessage()` and `getLastLoggedLine()`.
