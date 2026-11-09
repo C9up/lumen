@@ -122,12 +122,23 @@ function buildChain(applied: readonly StyleName[], render: Renderer): Colors {
 			? buildChain(applied, render)
 			: render(applied, String(text));
 
+	// A chain is immutable, so each child is built once and handed back on
+	// every later access: rebuilt each time, `colors.dim(x)` defined 28
+	// accessors per call, and a box of 300 000 lines took seconds.
+	const children = new Map<StyleName, Colors>();
 	const descriptors: PropertyDescriptorMap = {};
 	for (const style of STYLE_NAMES) {
 		descriptors[style] = {
 			configurable: true,
 			enumerable: true,
-			get: () => buildChain([...applied, style], render),
+			get: () => {
+				let child = children.get(style);
+				if (child === undefined) {
+					child = buildChain([...applied, style], render);
+					children.set(style, child);
+				}
+				return child;
+			},
 		};
 	}
 	Object.defineProperties(callable, descriptors);

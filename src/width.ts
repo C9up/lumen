@@ -194,13 +194,52 @@ export function* graphemes(text: string): Generator<string> {
 }
 
 /**
+ * A code point that can glue onto its neighbour into one grapheme: extending
+ * and spacing marks, ZWJ, emoji modifiers, regional indicators, conjoining
+ * jamo, and the Prepend class. A string with none of them has one grapheme
+ * per code point, and is measured without the segmenter — which costs a few
+ * microseconds per call, enough to make a box of 300 000 lines take seconds.
+ */
+const JOINS =
+	/[\p{Grapheme_Extend}\p{Spacing_Mark}\p{Emoji_Modifier}\p{Regional_Indicator}\u0600-\u0605\u06DD\u070F\u0890\u0891\u08E2\p{Join_Control}\u0D4E\u0E33\u0EB3\u1100-\u11FF\uA960-\uA97F\uD7B0-\uD7FF\u{110BD}\u{110CD}\u{111C2}\u{111C3}\u{1193F}\u{11941}\u{11A3A}\u{11A84}-\u{11A89}\u{113D1}\u{11D46}\u{11F02}\u{16D63}\u{16D67}-\u{16D6A}]/u;
+
+/**
  * The number of terminal columns this string occupies, escape codes excluded.
  */
 export function stringWidth(text: string): number {
 	const visible = stripAnsi(text);
 	// The common case needs no segmenter: printable ASCII is one column each.
 	if (PRINTABLE_ASCII.test(visible)) return visible.length;
+	if (!JOINS.test(visible)) {
+		let width = 0;
+		for (const character of visible) width += codePointWidth(character);
+		return width;
+	}
+	return segmentedWidth(visible);
+}
+
+/**
+ * One code point's width, measured once and remembered. A fixed 1.1 MB table
+ * rather than a Map: the cache is fed by whatever text is printed, and a Map
+ * would grow with every distinct code point an attacker sends.
+ */
+let cache: Uint8Array | undefined;
+const UNKNOWN = 0xff;
+
+function codePointWidth(character: string): number {
+	const code = character.codePointAt(0) ?? 0;
+	if (code >= 0x20 && code < 0x7f) return 1;
+	cache ??= new Uint8Array(0x110000).fill(UNKNOWN);
+	const known = cache[code] ?? UNKNOWN;
+	if (known !== UNKNOWN) return known;
+	const width = graphemeWidth(character);
+	cache[code] = width;
+	return width;
+}
+
+/** The width through the segmenter, whatever the text holds. */
+export function segmentedWidth(text: string): number {
 	let width = 0;
-	for (const segment of graphemes(visible)) width += graphemeWidth(segment);
+	for (const segment of graphemes(text)) width += graphemeWidth(segment);
 	return width;
 }

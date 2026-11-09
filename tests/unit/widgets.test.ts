@@ -253,3 +253,18 @@ describe("lumen > icons", () => {
 		expect(iconsFor("win32", { WT_SESSION: "1" }).tick).toBe("✔");
 	});
 });
+
+describe("lumen > Box at scale", () => {
+	it("prepares 300 000 lines without overflowing the call stack", () => {
+		// The widest line was found by spreading every line into Math.max,
+		// which overflows V8's argument stack past ~150 000 lines.
+		const box = new Box(silentColors(), renderer(), { pointer: true });
+		box.heading("Files");
+		for (let index = 0; index < 300_000; index += 1) {
+			box.add(index % 1000 === 0 ? `entry number ${index}` : `e${index}`);
+		}
+		const lines = box.prepare();
+		expect(lines).toHaveLength(300_000 + 6);
+		expect(new Set(lines.map((line) => stringWidth(line))).size).toBe(1);
+	});
+});

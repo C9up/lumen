@@ -21,8 +21,15 @@ export class Box {
 	#colors: Colors;
 	#renderer: Renderer;
 	readonly #withPointer: boolean;
-	readonly #lines: string[] = [];
-	#heading: string | undefined;
+	/** Each line with its width, measured once when it is added. */
+	readonly #lines: Array<{ text: string; width: number }> = [];
+	#heading: { text: string; width: number } | undefined;
+	/**
+	 * Kept up to date by `add()` and `heading()`, as upstream does. Found at
+	 * render time by spreading every line into `Math.max`, it overflowed the
+	 * call stack past ~150 000 lines.
+	 */
+	#widest = 0;
 	#fullScreen = false;
 	#paint: BorderPainter = (character, colors) => colors.dim(character);
 
@@ -57,14 +64,24 @@ export class Box {
 	}
 
 	heading(text: string): this {
-		this.#heading = sanitize(text);
+		const safe = sanitize(text);
+		this.#heading = { text: safe, width: stringWidth(safe) };
+		this.#widest = Math.max(this.#widest, this.#heading.width);
 		return this;
 	}
 
 	add(line: string): this {
 		// One entry is one row: a newline in it would break the frame, so it
 		// is shown like every other control.
-		this.#lines.push(sanitize(line));
+		const safe = sanitize(line);
+		// An empty line stays empty: a pointer on nothing is a stray glyph.
+		const text =
+			this.#withPointer && safe !== ""
+				? `${this.#colors.dim(icons.pointer)} ${safe}`
+				: safe;
+		const width = stringWidth(text);
+		this.#lines.push({ text, width });
+		this.#widest = Math.max(this.#widest, width);
 		return this;
 	}
 
@@ -83,15 +100,7 @@ export class Box {
 	prepare(): string[] {
 		if (this.#lines.length === 0 && this.#heading === undefined) return [];
 
-		const body = this.#lines.map((line) =>
-			// An empty line stays empty: a pointer on nothing is a stray glyph.
-			this.#withPointer && line !== ""
-				? `${this.#colors.dim(icons.pointer)} ${line}`
-				: line,
-		);
-		const content =
-			this.#heading === undefined ? body : [this.#heading, ...body];
-		const widest = Math.max(...content.map(stringWidth));
+		const widest = this.#widest;
 		// Padding is asymmetric on purpose: text hugging the right border reads
 		// as a mistake, and the extra room is where a wrapped word lands.
 		const inner = this.#fullScreen
@@ -102,27 +111,25 @@ export class Box {
 		const edge = (left: string, fill: string, right: string): string =>
 			`${this.#paint(left, this.#colors)}${this.#paint(fill, this.#colors).repeat(width)}${this.#paint(right, this.#colors)}`;
 
-		const row = (text: string): string => {
-			const slack = inner - stringWidth(text);
-			return [
-				this.#paint(icons.borderVertical, this.#colors),
-				" ".repeat(LEFT_PADDING),
-				text,
-				" ".repeat(Math.max(0, slack) + RIGHT_PADDING),
-				this.#paint(icons.borderVertical, this.#colors),
-			].join("");
-		};
+		// Painted once: the painter is the caller's callback, and calling it
+		// twice per row is the whole cost of a long box.
+		const vertical = this.#paint(icons.borderVertical, this.#colors);
+		const left = " ".repeat(LEFT_PADDING);
+		const row = (text: string, textWidth: number): string =>
+			`${vertical}${left}${text}${" ".repeat(Math.max(0, inner - textWidth) + RIGHT_PADDING)}${vertical}`;
 
 		const lines = [
 			edge(icons.borderTopLeft, icons.borderHorizontal, icons.borderTopRight),
 		];
-		lines.push(row(""));
+		lines.push(row("", 0));
 		if (this.#heading !== undefined) {
-			lines.push(row(this.#colors.bold(this.#heading)));
-			lines.push(row(""));
+			lines.push(
+				row(this.#colors.bold(this.#heading.text), this.#heading.width),
+			);
+			lines.push(row("", 0));
 		}
-		for (const line of body) lines.push(row(line));
-		lines.push(row(""));
+		for (const line of this.#lines) lines.push(row(line.text, line.width));
+		lines.push(row("", 0));
 		lines.push(
 			edge(
 				icons.borderBottomLeft,

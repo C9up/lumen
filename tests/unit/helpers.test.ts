@@ -7,10 +7,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { ansiColors, silentColors } from "../../src/colors.js";
+import { ansiColors, silentColors, stripAnsi } from "../../src/colors.js";
 import { justify, stringWidth, truncate, wrap } from "../../src/helpers.js";
 import { MemoryRenderer } from "../../src/renderers.js";
 import { Table } from "../../src/table.js";
+import { segmentedWidth } from "../../src/width.js";
 
 describe("lumen > stringWidth", () => {
 	it("ignores escape codes", () => {
@@ -230,5 +231,25 @@ describe("lumen > wrap scales with the text", () => {
 		const lines = table.prepare();
 		expect(performance.now() - started).toBeLessThan(500);
 		expect(lines).toHaveLength(3);
+	});
+});
+
+describe("lumen > stringWidth's fast path", () => {
+	it("agrees with the segmenter on every code point of planes 0 and 1", () => {
+		// The fast path skips the segmenter when nothing in the text can glue
+		// two code points into one glyph. Any code point the joiner set misses
+		// shows up here as a difference, next to a letter or next to itself.
+		const differences: string[] = [];
+		const check = (code: number): void => {
+			if (code >= 0xd800 && code <= 0xdfff) return;
+			const character = String.fromCodePoint(code);
+			const sample = `a${character}${character}b`;
+			if (stringWidth(sample) !== segmentedWidth(stripAnsi(sample))) {
+				differences.push(code.toString(16));
+			}
+		};
+		for (let code = 0x80; code <= 0x1ffff; code += 1) check(code);
+		for (let code = 0xe0000; code <= 0xe01ef; code += 1) check(code);
+		expect(differences.join(" ")).toBe("");
 	});
 });
