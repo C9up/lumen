@@ -293,3 +293,22 @@ describe("lumen > Spinner state", () => {
 		expect(frames).toEqual(["a .  "]);
 	});
 });
+
+describe("lumen > the silent option", () => {
+	it("silences every level, fatal included", () => {
+		// A `--quiet` flag threaded through `silent` must not still print a
+		// fatal message and its whole stack.
+		const { logger, renderer } = build();
+		const options = { silent: true };
+		logger.success("a", options);
+		logger.info("b", options);
+		logger.warning("c", options);
+		logger.error("d", options);
+		logger.error(new Error("e"), options);
+		logger.fatal("f", options);
+		logger.fatal(new Error("g"), options);
+		logger.debug("h", options);
+		logger.await("i", options).start().stop();
+		expect(renderer.getLogs()).toEqual([]);
+	});
+});

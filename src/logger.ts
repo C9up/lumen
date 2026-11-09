@@ -177,6 +177,7 @@ export class Logger {
 
 	/** An error plus its stack, indented and dimmed under the message. */
 	fatal(message: string | Error, options: MessageOptions = {}): void {
+		if (options.silent === true) return;
 		const line = this.prepare("fatal", messageOf(message), options);
 		const stack =
 			message instanceof Error ? this.#formatStack(message.stack) : "";
