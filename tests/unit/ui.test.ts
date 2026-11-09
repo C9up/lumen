@@ -73,7 +73,7 @@ describe("lumen > Ui modes", () => {
 
 	it("hands the widgets the current colours", () => {
 		const ui = new Ui("raw");
-		expect(ui.sticker().add("x").prepare()[0]).toContain("dim(╭)");
+		expect(ui.instructions().add("x").prepare()).toEqual(["dim(❯) x"]);
 		expect(ui.steps().add("x").prepare()[0]).toBe("cyan(1.) bold(x)");
 	});
 });
@@ -113,5 +113,45 @@ describe("lumen > factory", () => {
 		const ui = lumen({ mode: "raw", dim: true });
 		ui.logger.info("context");
 		expect(ui.getLogs()).toEqual(["[ dim(blue(info)) ] dim(context)"]);
+	});
+});
+
+describe("lumen > raw mode reaches every widget", () => {
+	// What upstream's raw mode yields for the same calls: the content, no
+	// frame and no layout, so an assertion does not break when the widest
+	// line changes.
+	it("instructions: the heading and the pointed lines, no box", () => {
+		const ui = lumen({ mode: "raw" });
+		ui.instructions().heading("Next").add("run it").render();
+		expect(ui.getLogs()).toEqual(["Next", "dim(❯) run it"]);
+	});
+
+	it("sticker: the heading and the lines, no box", () => {
+		const ui = lumen({ mode: "raw" });
+		ui.sticker().heading("Key").add("written to .env").add("").render();
+		expect(ui.getLogs()).toEqual(["Key", "written to .env", ""]);
+	});
+
+	it("steps: no indent and no blank separator", () => {
+		const ui = lumen({ mode: "raw" });
+		ui.steps().add("Install", "npm i\nnpm t").add("Run").render();
+		expect(ui.getLogs()).toEqual([
+			"cyan(1.) bold(Install)",
+			"npm i",
+			"npm t",
+			"cyan(2.) bold(Run)",
+		]);
+	});
+
+	it("keeps the frame outside raw mode", () => {
+		const ui = lumen({ mode: "silent" });
+		const lines = ui.instructions().heading("Next").add("run it").prepare();
+		expect(lines[0]?.startsWith("╭")).toBe(true);
+		expect(ui.steps().add("A", "b").add("C").prepare()).toEqual([
+			"1. A",
+			"   b",
+			"",
+			"2. C",
+		]);
 	});
 });

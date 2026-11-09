@@ -13,10 +13,18 @@ export class Steps {
 	#colors: Colors;
 	#renderer: Renderer;
 	readonly #steps: Array<{ title: string; content?: string }> = [];
+	readonly #raw: boolean;
 
-	constructor(colors: Colors, renderer: Renderer) {
+	constructor(
+		colors: Colors,
+		renderer: Renderer,
+		options: { raw?: boolean } = {},
+	) {
 		this.#colors = colors;
 		this.#renderer = renderer;
+		// Raw mode (tests) drops the layout — indent and blank separators —
+		// and keeps the content, as upstream.
+		this.#raw = options.raw === true;
 	}
 
 	getColors(): Colors {
@@ -58,9 +66,11 @@ export class Steps {
 			if (step.content !== undefined) {
 				// Indented under the counter, so a multi-line explanation stays
 				// visibly attached to its step.
-				for (const line of step.content.split("\n")) lines.push(`   ${line}`);
+				for (const line of step.content.split("\n")) {
+					lines.push(this.#raw ? line : `   ${line}`);
+				}
 			}
-			if (index < this.#steps.length - 1) lines.push("");
+			if (index < this.#steps.length - 1 && !this.#raw) lines.push("");
 		});
 		return lines;
 	}

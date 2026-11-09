@@ -21,6 +21,7 @@ export class Box {
 	#colors: Colors;
 	#renderer: Renderer;
 	readonly #withPointer: boolean;
+	readonly #raw: boolean;
 	/** Each line with its width, measured once when it is added. */
 	readonly #lines: Array<{ text: string; width: number }> = [];
 	#heading: { text: string; width: number } | undefined;
@@ -36,13 +37,15 @@ export class Box {
 	constructor(
 		colors: Colors,
 		renderer: Renderer,
-		options: { pointer?: boolean; icons?: boolean } = {},
+		options: { pointer?: boolean; icons?: boolean; raw?: boolean } = {},
 	) {
 		this.#colors = colors;
 		this.#renderer = renderer;
 		// `icons: false` drops the pointer for a terminal whose font has none —
 		// the same switch upstream puts on instructions.
 		this.#withPointer = (options.pointer ?? false) && options.icons !== false;
+		// Raw mode (tests) gets the content without the frame, as upstream.
+		this.#raw = options.raw === true;
 	}
 
 	getColors(): Colors {
@@ -99,6 +102,10 @@ export class Box {
 	/** The rendered lines, without writing them. */
 	prepare(): string[] {
 		if (this.#lines.length === 0 && this.#heading === undefined) return [];
+		if (this.#raw) {
+			const body = this.#lines.map((line) => line.text);
+			return this.#heading === undefined ? body : [this.#heading.text, ...body];
+		}
 
 		const widest = this.#widest;
 		// Padding is asymmetric on purpose: text hugging the right border reads

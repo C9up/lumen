@@ -135,16 +135,28 @@ export class Ui {
 
 	/** A highlighted block. */
 	sticker(): Box {
-		return new Box(this.#colors, this.#renderer);
+		return new Box(this.#colors, this.#renderer, {
+			raw: this.#mode === "raw",
+		});
 	}
 
 	/** The same box, every line marked with a pointer. */
 	instructions(): Box {
-		return new Box(this.#colors, this.#renderer, { pointer: true });
+		return new Box(this.#colors, this.#renderer, {
+			pointer: true,
+			raw: this.#mode === "raw",
+		});
 	}
 
+	/**
+	 * Numbered steps. In raw mode, like the boxes above, the content comes
+	 * without layout — one captured entry per line rather than upstream's one
+	 * joined entry, the same as every other widget here.
+	 */
 	steps(): Steps {
-		return new Steps(this.#colors, this.#renderer);
+		return new Steps(this.#colors, this.#renderer, {
+			raw: this.#mode === "raw",
+		});
 	}
 
 	tasks(options: TasksOptions = {}): Tasks {

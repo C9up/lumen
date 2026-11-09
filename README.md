@@ -47,6 +47,11 @@ ui.logger.warning('careful')
 expect(ui.getLogs()).toEqual(['[ yellow(warn) ] careful'])
 ```
 
+Widgets drop their layout there too, so a test asserts content rather than
+borders: a table prints its cells joined by `|`, `sticker()` and
+`instructions()` print the heading and the lines without the frame, and
+`steps()` prints its lines without indent or blank separators.
+
 ## Levels
 
 The vocabulary is fixed on purpose — the same word, in the same colour, for the
