@@ -584,12 +584,21 @@ function pick(
  * which is how upstream renders a keyed row.
  */
 function toRow(row: TableRow): TableCell[] {
-	if (Array.isArray(row)) return row.map(toCell);
-	const entries = Object.entries(row as Record<string, readonly TableInput[]>);
-	return entries.flatMap(([heading, cells]) => [
+	if (!isKeyedRow(row)) return row.map(toCell);
+	return Object.entries(row).flatMap(([heading, cells]) => [
 		toCell(heading),
 		...cells.map(toCell),
 	]);
+}
+
+/**
+ * `Array.isArray` does not narrow a READONLY array out of a union, so the
+ * keyed shape is told apart by a guard rather than a cast.
+ */
+function isKeyedRow(
+	row: TableRow,
+): row is Record<string, readonly TableInput[]> {
+	return !Array.isArray(row);
 }
 
 function toCell(input: TableInput): TableCell {

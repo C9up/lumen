@@ -44,8 +44,7 @@ function isTaskError(value: unknown): value is TaskError {
 	return (
 		typeof value === "object" &&
 		value !== null &&
-		"isError" in value &&
-		(value as { isError?: unknown }).isError === true
+		Reflect.get(value, "isError") === true
 	);
 }
 
@@ -156,11 +155,14 @@ export class Task {
 	 * string comes back as `{ message, isError: true }`. A caller that only
 	 * returns it never sees the difference; one that inspects it would.
 	 */
-	error<T extends string | Error>(reason: T): TaskFailure<T> {
+	error(reason: string): TaskError;
+	error<T extends Error>(reason: T): T;
+	error(reason: string | Error): TaskError | Error;
+	error(reason: string | Error): TaskError | Error {
 		this.markAsFailed(reason);
-		return (
-			typeof reason === "string" ? { message: reason, isError: true } : reason
-		) as TaskFailure<T>;
+		return typeof reason === "string"
+			? { message: reason, isError: true }
+			: reason;
 	}
 
 	#finish(): void {
@@ -325,10 +327,8 @@ export class Tasks {
 				continue;
 			}
 
-			const failure =
-				task.getError() instanceof Error
-					? (task.getError() as Error)
-					: new Error(String(task.getError()));
+			const error = task.getError();
+			const failure = error instanceof Error ? error : new Error(String(error));
 			this.#outcomes.push({
 				title: task.title,
 				state: "failed",

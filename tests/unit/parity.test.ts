@@ -15,7 +15,7 @@ import { stringWidth } from "../../src/helpers.js";
 import { Action, Logger, Spinner } from "../../src/logger.js";
 import { MemoryRenderer } from "../../src/renderers.js";
 import { InvalidColumnError, Table } from "../../src/table.js";
-import { Tasks } from "../../src/tasks.js";
+import { type TaskError, Tasks } from "../../src/tasks.js";
 
 const renderer = (): MemoryRenderer => new MemoryRenderer();
 
@@ -363,11 +363,12 @@ describe("lumen > the failure a callback returns", () => {
 	it("marks a string the way upstream marks it", async () => {
 		const { Tasks } = await import("../../src/tasks.js");
 		const tasks = new Tasks(rawColors(), renderer());
-		let returned: unknown;
+		// Typed by the overload: a string reason gives back the marked object.
+		let returned: TaskError | undefined;
 		await tasks
 			.add("install", async (task) => {
 				returned = task.error("no network");
-				return returned as never;
+				return returned;
 			})
 			.run();
 
@@ -381,11 +382,12 @@ describe("lumen > the failure a callback returns", () => {
 		const { Tasks } = await import("../../src/tasks.js");
 		const tasks = new Tasks(rawColors(), renderer());
 		const original = new Error("no disk");
-		let returned: unknown;
+		// And an Error reason gives back that very Error, typed as itself.
+		let returned: Error | undefined;
 		await tasks
 			.add("write", async (task) => {
 				returned = task.error(original);
-				return returned as never;
+				return returned;
 			})
 			.run();
 
