@@ -11,6 +11,7 @@
  * `@c9up/lumen/colors`; the layout primitives are on `@c9up/lumen/helpers`.
  */
 
+export { type SanitizeOptions, sanitize } from "./ansi.js";
 export { type BorderPainter, Box } from "./box.js";
 export {
 	ansiColors,

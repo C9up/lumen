@@ -11,6 +11,8 @@
 import { stdout } from "node:process";
 import { stripAnsi } from "./colors.js";
 
+export { type SanitizeOptions, sanitize } from "./ansi.js";
+
 /**
  * Code point ranges that take TWO columns (East Asian Wide and Fullwidth,
  * plus the emoji blocks that render wide everywhere).

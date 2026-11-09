@@ -66,6 +66,26 @@ elapsed time — a `Date.now()`, a `process.hrtime()` tuple or a
 `process.hrtime.bigint()`, because an example copied from elsewhere passes the
 tuple and subtracting it from a number renders `(NaNm NaNs)`.
 
+## Untrusted text
+
+Every widget prints data — a file name, a database value, an error message —
+so every widget renders the controls in it visibly instead of letting them act
+on the terminal: `\x1b]52;…` rather than a clipboard write, `\x0d` rather than
+a carriage return that rewinds over `[ error ]`, `\x0a` rather than a forged
+second log line. That covers the logger's message, prefix and suffix, an
+error's stack, action titles and reasons, spinner text, table cells and head,
+box lines, step titles and content, and task titles and messages.
+
+Colour survives: `colors.green(cell)` stays green, and a style the text opens
+without closing is closed at its end, so it cannot spill onto the next line.
+Hyperlinks and every other non-colour sequence are shown, not run.
+
+`logger.log()`, `logger.logError()`, `logger.logUpdate()` and `ui.write()` are
+the raw escape hatch: they write what they are given, for a command printing
+its own escape sequences on purpose. Never hand them untrusted text — pass it
+through `sanitize()` (exported from the root and from `@c9up/lumen/helpers`)
+first.
+
 ## Colours on their own
 
 `@c9up/lumen/colors` carries no widget:

@@ -11,6 +11,7 @@
  * row below the offending cell is out of line.
  */
 
+import { containStyles, sanitize } from "./ansi.js";
 import type { Colors } from "./colors.js";
 import { stringWidth, terminalWidth, wrap } from "./helpers.js";
 import type { Renderer } from "./renderers.js";
@@ -203,11 +204,20 @@ export class Table {
 
 	/** The rendered lines, without writing them. */
 	prepare(): string[] {
-		const all =
+		const given =
 			this.#headCells.length > 0
 				? [this.#headCells, ...this.#rows]
 				: this.#rows;
-		if (all.length === 0) return [];
+		if (given.length === 0) return [];
+		// Cells are data. Sanitised once, here, so the widths below measure
+		// what is actually printed; a cell's own newlines stay, since wrapping
+		// splits on them.
+		const all = given.map((row) =>
+			row.map((cell) => ({
+				...cell,
+				content: sanitize(cell.content, { keepNewlines: true }),
+			})),
+		);
 
 		const grid = layout(all);
 		const columns = grid.columns;
@@ -353,7 +363,9 @@ export class Table {
 			// would push through it. Anything still too wide is cut.
 			laid.set(
 				placed,
-				wrapped.split("\n").flatMap((line) => hardWrap(line, inner)),
+				containStyles(
+					wrapped.split("\n").flatMap((line) => hardWrap(line, inner)),
+				),
 			);
 		}
 

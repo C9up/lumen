@@ -5,6 +5,7 @@
  * take. Unlike {@link Tasks}, nothing here is executed: it is a static list.
  */
 
+import { sanitize } from "./ansi.js";
 import type { Colors } from "./colors.js";
 import type { Renderer } from "./renderers.js";
 
@@ -37,7 +38,14 @@ export class Steps {
 	}
 
 	add(title: string, content?: string): this {
-		this.#steps.push({ title, content });
+		this.#steps.push({
+			title: sanitize(title),
+			// The content's own lines are kept: they are split into rows below.
+			content:
+				content === undefined
+					? undefined
+					: sanitize(content, { keepNewlines: true }),
+		});
 		return this;
 	}
 

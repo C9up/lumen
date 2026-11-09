@@ -11,6 +11,7 @@
  */
 
 import { stdout } from "node:process";
+import { sanitize } from "./ansi.js";
 import type { Colors, StyleName } from "./colors.js";
 import { elapsedSince, formatDuration, type StartTime } from "./duration.js";
 import {
@@ -189,7 +190,13 @@ export class Logger {
 		this.#renderer.log(this.prepare("debug", message, options), "stdout");
 	}
 
-	/** A line with no decoration at all. Use it for the command's own output. */
+	/**
+	 * A line with no decoration at all. Use it for the command's own output.
+	 *
+	 * The raw escape hatch: unlike every level above, it writes the text as
+	 * given, escape sequences included — for a caller printing a hyperlink or
+	 * a cursor move on purpose. Never hand it untrusted text.
+	 */
 	log(message: string, stream: Stream = "stdout"): void {
 		this.#renderer.log(message, stream);
 	}
@@ -234,13 +241,14 @@ export class Logger {
 	 */
 	prepare(level: Level, message: string, options: MessageOptions = {}): string {
 		const { label, colour } = LEVELS[level];
-		let text = this.#options.dim ? this.#colors.dim(message) : message;
+		const safe = sanitize(message);
+		let text = this.#options.dim ? this.#colors.dim(safe) : safe;
 		text = `${this.#label(colour, label)} ${text}`;
 
 		const prefix = options.prefix ?? this.#stickyPrefix;
 		if (prefix !== "") {
 			// Not dimmed on top of dim: grey on grey stops being readable.
-			const resolved = String(prefix).replace(
+			const resolved = sanitize(String(prefix)).replace(
 				/%time%/g,
 				new Date().toISOString(),
 			);
@@ -249,7 +257,7 @@ export class Logger {
 
 		const suffix = options.suffix ?? this.#stickySuffix;
 		if (suffix !== "") {
-			text = `${text} ${this.#colors.dim.yellow(`(${String(suffix)})`)}`;
+			text = `${text} ${this.#colors.dim.yellow(`(${sanitize(String(suffix))})`)}`;
 		}
 
 		if (options.startTime !== undefined) {
@@ -306,7 +314,7 @@ export class Logger {
 		return `\n${stack
 			.split("\n")
 			.slice(1)
-			.map((line) => `      ${this.#colors.dim(line.trim())}`)
+			.map((line) => `      ${this.#colors.dim(sanitize(line.trim()))}`)
 			.join("\n")}`;
 	}
 }
@@ -365,7 +373,9 @@ export class Action {
 
 	prepareSkipped(reason?: string): string {
 		const suffix =
-			reason === undefined ? "" : ` ${this.#colors.dim(`(${reason})`)}`;
+			reason === undefined
+				? ""
+				: ` ${this.#colors.dim(`(${sanitize(reason)})`)}`;
 		return `${this.prepare("SKIPPED", "cyan")}${suffix}`;
 	}
 
@@ -379,7 +389,8 @@ export class Action {
 		// columns, and padding them would leave the column ragged.
 		const padded = `${label}:`.padEnd(LABEL_WIDTH, " ");
 		const tag = this.#colors[colour](padded);
-		const title = this.#dim ? this.#colors.dim(this.#title) : this.#title;
+		const safe = sanitize(this.#title);
+		const title = this.#dim ? this.#colors.dim(safe) : safe;
 		const duration = this.#withDuration
 			? ` ${this.#colors.dim(`(${formatDuration(Date.now() - this.#startedAt)})`)}`
 			: "";
@@ -391,7 +402,7 @@ export class Action {
 			error instanceof Error ? (error.stack ?? error.message) : String(error);
 		return `\n${detail
 			.split("\n")
-			.map((line) => `      ${this.#colors.red(line.trim())}`)
+			.map((line) => `      ${this.#colors.red(sanitize(line.trim()))}`)
 			.join("\n")}`;
 	}
 }
@@ -426,7 +437,7 @@ export class Spinner {
 	start(): this {
 		if (this.#silent) return this;
 		if (!this.#animatable()) {
-			this.#renderer.log(this.#render(), "stdout");
+			this.#renderer.log(this.#line(), "stdout");
 			return this;
 		}
 		this.#draw();
@@ -444,7 +455,7 @@ export class Spinner {
 		this.#render = typeof render === "string" ? () => render : render;
 		this.#frame = 0;
 		if (this.#animatable()) this.#draw();
-		else this.#renderer.log(this.#render(), "stdout");
+		else this.#renderer.log(this.#line(), "stdout");
 		return this;
 	}
 
@@ -468,12 +479,17 @@ export class Spinner {
 	}
 
 	#draw(): void {
-		const line = `${this.#render()} ${Spinner.FRAMES[this.#frame] ?? ""}`;
+		const line = `${this.#line()} ${Spinner.FRAMES[this.#frame] ?? ""}`;
 		if (this.#writer !== undefined) {
 			this.#writer(line);
 			return;
 		}
 		this.#renderer.logUpdate(line);
+	}
+
+	/** The text, never trusted: `update()` takes it straight from the caller. */
+	#line(): string {
+		return sanitize(this.#render());
 	}
 
 	#animatable(): boolean {

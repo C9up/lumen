@@ -10,6 +10,7 @@
  * `onUpdate` fires whenever one moves.
  */
 
+import { sanitize } from "./ansi.js";
 import type { Colors } from "./colors.js";
 import { formatDuration } from "./duration.js";
 import { icons } from "./icons.js";
@@ -354,9 +355,14 @@ export class Tasks {
 		return this.#icons ? `${this.#colors[colour](glyph)} ` : "";
 	}
 
+	/**
+	 * Every line goes through here, and every one is a single line built from
+	 * caller text — title, progress, outcome — so it is sanitised whole.
+	 */
 	#write(task: Task, line: string, stream: "stdout" | "stderr"): void {
-		task.setLastLoggedLine(line);
-		this.#renderer.log(line, stream);
+		const safe = sanitize(line);
+		task.setLastLoggedLine(safe);
+		this.#renderer.log(safe, stream);
 	}
 }
 

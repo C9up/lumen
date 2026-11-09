@@ -8,6 +8,7 @@
  * without the box knowing what severity means.
  */
 
+import { sanitize } from "./ansi.js";
 import type { Colors } from "./colors.js";
 import { stringWidth, terminalWidth } from "./helpers.js";
 import { icons } from "./icons.js";
@@ -56,12 +57,14 @@ export class Box {
 	}
 
 	heading(text: string): this {
-		this.#heading = text;
+		this.#heading = sanitize(text);
 		return this;
 	}
 
 	add(line: string): this {
-		this.#lines.push(line);
+		// One entry is one row: a newline in it would break the frame, so it
+		// is shown like every other control.
+		this.#lines.push(sanitize(line));
 		return this;
 	}
 
