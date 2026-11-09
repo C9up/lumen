@@ -81,15 +81,26 @@ function wrapOne(text: string, startColumn: number, endColumn: number): string {
 	// Paragraphs first: an explicit newline is the author's, and wrapping must
 	// not swallow it.
 	for (const paragraph of text.split("\n")) {
+		// The width runs as a number, each word measured once: re-measuring
+		// the line so far for every word made a long paragraph quadratic.
 		let current = "";
-		for (const word of paragraph.split(/\s+/).filter((part) => part !== "")) {
-			const candidate = current === "" ? word : `${current} ${word}`;
-			if (stringWidth(candidate) > available && current !== "") {
-				lines.push(current);
+		let currentWidth = 0;
+		for (const word of paragraph.split(/\s+/)) {
+			if (word === "") continue;
+			const wordWidth = stringWidth(word);
+			if (current === "") {
 				current = word;
+				currentWidth = wordWidth;
 				continue;
 			}
-			current = candidate;
+			if (currentWidth + 1 + wordWidth > available) {
+				lines.push(current);
+				current = word;
+				currentWidth = wordWidth;
+				continue;
+			}
+			current = `${current} ${word}`;
+			currentWidth += 1 + wordWidth;
 		}
 		lines.push(current);
 	}

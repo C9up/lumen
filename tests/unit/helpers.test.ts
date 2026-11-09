@@ -192,3 +192,43 @@ describe("lumen > stringWidth matches what the terminal draws", () => {
 		]);
 	});
 });
+
+describe("lumen > wrap scales with the text", () => {
+	// Re-measuring the line so far for every word made a paragraph quadratic:
+	// in a column wide enough to hold it — a table cell is sized to its
+	// content — 4 000 accented words took 3.4 s.
+	const paragraph = (count: number, stem: string): string =>
+		Array.from({ length: count }, (_, index) => `${stem}${index % 97}`).join(
+			" ",
+		);
+
+	it("wraps a hundred thousand words in linear time", () => {
+		const text = paragraph(100_000, "w");
+		const started = performance.now();
+		const [wrapped] = wrap([text], { startColumn: 0, endColumn: 10_000_000 });
+		expect(performance.now() - started).toBeLessThan(200);
+		expect(wrapped).toBe(text);
+	});
+
+	it("wraps accented words in linear time, without losing one", () => {
+		const text = paragraph(3_000, "é");
+		const started = performance.now();
+		const [wide] = wrap([text], { startColumn: 0, endColumn: 10_000_000 });
+		expect(performance.now() - started).toBeLessThan(200);
+		expect(wide).toBe(text);
+
+		const [narrow] = wrap([text], { startColumn: 2, endColumn: 40 });
+		const lines = (narrow ?? "").split("\n");
+		for (const line of lines) expect(stringWidth(line)).toBeLessThanOrEqual(40);
+		expect(lines.map((line) => line.trim()).join(" ")).toBe(text);
+	});
+
+	it("lays out a table cell holding all of it in linear time", () => {
+		const table = new Table(silentColors(), new MemoryRenderer());
+		table.row([paragraph(3_000, "é"), "x"]);
+		const started = performance.now();
+		const lines = table.prepare();
+		expect(performance.now() - started).toBeLessThan(500);
+		expect(lines).toHaveLength(3);
+	});
+});
