@@ -88,37 +88,97 @@ describe("lumen > colors", () => {
 describe("lumen > supportsColor", () => {
 	const tty = { isTTY: true };
 	const pipe = { isTTY: false };
+	const xterm = { TERM: "xterm-256color" };
+	// Flags are passed explicitly: the runner's own argv must not decide.
+	const none: string[] = [];
 
-	it("follows the stream when nothing overrides it", () => {
-		expect(supportsColor(tty, {})).toBe(true);
-		expect(supportsColor(pipe, {})).toBe(false);
+	it("follows the stream and the terminal when nothing overrides them", () => {
+		expect(supportsColor(tty, xterm, none)).toBe(true);
+		expect(supportsColor(pipe, xterm, none)).toBe(false);
+		// A terminal that says nothing about itself gets nothing.
+		expect(supportsColor(tty, {}, none)).toBe(false);
+		expect(supportsColor(tty, { COLORTERM: "truecolor" }, none)).toBe(true);
 	});
 
 	it("honours NO_COLOR for any non-empty value", () => {
-		expect(supportsColor(tty, { NO_COLOR: "1" })).toBe(false);
-		expect(supportsColor(tty, { NO_COLOR: "anything" })).toBe(false);
+		expect(supportsColor(tty, { ...xterm, NO_COLOR: "1" }, none)).toBe(false);
+		expect(supportsColor(tty, { ...xterm, NO_COLOR: "x" }, none)).toBe(false);
 		// Empty is not set, per no-color.org.
-		expect(supportsColor(tty, { NO_COLOR: "" })).toBe(true);
+		expect(supportsColor(tty, { ...xterm, NO_COLOR: "" }, none)).toBe(true);
 	});
 
 	it("lets FORCE_COLOR win over NO_COLOR, both ways", () => {
-		expect(supportsColor(pipe, { FORCE_COLOR: "1", NO_COLOR: "1" })).toBe(true);
-		// Set to a falsy value it means OFF — existing is not the same as on.
-		expect(supportsColor(tty, { FORCE_COLOR: "0" })).toBe(false);
-		expect(supportsColor(tty, { FORCE_COLOR: "false" })).toBe(false);
-	});
-
-	it("refuses a dumb terminal", () => {
-		expect(supportsColor(tty, { TERM: "dumb" })).toBe(false);
-	});
-
-	it("colours a CI it knows and stays plain on one it does not", () => {
-		expect(supportsColor(pipe, { CI: "true", GITHUB_ACTIONS: "true" })).toBe(
+		expect(supportsColor(pipe, { FORCE_COLOR: "1", NO_COLOR: "1" }, none)).toBe(
 			true,
 		);
-		// An unknown log viewer printing [32m on every line is worse than a
-		// plain transcript; FORCE_COLOR is there to say otherwise.
-		expect(supportsColor(pipe, { CI: "true" })).toBe(false);
-		expect(supportsColor(tty, { CI: "true" })).toBe(false);
+		expect(supportsColor(tty, { ...xterm, FORCE_COLOR: "0" }, none)).toBe(
+			false,
+		);
+		expect(supportsColor(tty, { ...xterm, FORCE_COLOR: "false" }, none)).toBe(
+			false,
+		);
+	});
+
+	it("parses FORCE_COLOR the way supports-color does", () => {
+		// Empty and "true" mean on; Node documents the empty form too.
+		expect(supportsColor(pipe, { FORCE_COLOR: "" }, none)).toBe(true);
+		expect(supportsColor(pipe, { FORCE_COLOR: "true" }, none)).toBe(true);
+		expect(supportsColor(pipe, { FORCE_COLOR: "3" }, none)).toBe(true);
+		// Unparsable is ignored, not read as "on".
+		expect(supportsColor(pipe, { FORCE_COLOR: "abc" }, none)).toBe(false);
+		expect(supportsColor(tty, { ...xterm, FORCE_COLOR: "abc" }, none)).toBe(
+			true,
+		);
+	});
+
+	it("refuses a dumb terminal unless forced", () => {
+		expect(supportsColor(tty, { TERM: "dumb" }, none)).toBe(false);
+		expect(supportsColor(tty, { TERM: "dumb", FORCE_COLOR: "1" }, none)).toBe(
+			true,
+		);
+	});
+
+	it("never colours a redirected stream because the job runs in CI", () => {
+		// `ream cmd > out.txt` inside a GitHub job wrote escape codes into
+		// the file: the CI list is consulted only for a terminal.
+		const github = { CI: "true", GITHUB_ACTIONS: "true" };
+		expect(supportsColor(pipe, github, none)).toBe(false);
+		expect(supportsColor(pipe, { CI: "1", GITLAB_CI: "1" }, none)).toBe(false);
+		expect(supportsColor(tty, github, none)).toBe(true);
+		expect(supportsColor(tty, { CI: "1", GITEA_ACTIONS: "1" }, none)).toBe(
+			true,
+		);
+		expect(supportsColor(tty, { CI: "1", CI_NAME: "codeship" }, none)).toBe(
+			true,
+		);
+		// An unknown CI stays plain, even on a terminal.
+		expect(supportsColor(tty, { ...xterm, CI: "true" }, none)).toBe(false);
+	});
+
+	it("colours Azure Pipelines, which has no terminal", () => {
+		expect(supportsColor(pipe, { TF_BUILD: "1", AGENT_NAME: "a" }, none)).toBe(
+			true,
+		);
+	});
+
+	it("honours the --color and --no-color flags before a `--`", () => {
+		expect(supportsColor(pipe, {}, ["node", "cmd", "--color"])).toBe(true);
+		expect(supportsColor(pipe, {}, ["node", "cmd", "--color=always"])).toBe(
+			true,
+		);
+		expect(supportsColor(tty, xterm, ["node", "cmd", "--no-color"])).toBe(
+			false,
+		);
+		expect(supportsColor(tty, xterm, ["node", "cmd", "--color=never"])).toBe(
+			false,
+		);
+		// After `--` it is an argument of something else.
+		expect(supportsColor(pipe, {}, ["node", "cmd", "--", "--color"])).toBe(
+			false,
+		);
+		// The environment wins over a flag, as supports-color has it.
+		expect(
+			supportsColor(pipe, { FORCE_COLOR: "0" }, ["node", "cmd", "--color"]),
+		).toBe(false);
 	});
 });

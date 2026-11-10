@@ -36,8 +36,13 @@ A UI is in one of three modes, decided once:
 | `raw` | spelled out — `dim(yellow(2 files))` | memory |
 
 `lumen()` picks between `normal` and `silent` by asking the stream, so nothing
-downstream has to check again. `NO_COLOR`, `FORCE_COLOR`, `TERM=dumb` and CI
-detection are all handled there.
+downstream has to check again. `FORCE_COLOR` (empty, `true` or `1`–`3` for on,
+`0` or `false` for off) and the `--color` / `--no-color` flags decide first;
+then `NO_COLOR` turns colour off; then a stream that is not a terminal gets
+plain text — even inside CI, so `cmd > out.txt` in a GitHub job writes no
+escape codes (set `FORCE_COLOR=1` in the workflow for coloured CI logs); then
+`TERM=dumb`, the known CI services and what the terminal says about itself.
+Warnings and errors go to stderr, which is asked separately.
 
 `raw` is for tests. An expected line stays a string a human can read:
 

@@ -10,7 +10,7 @@
  * {@link supportsColor} when the UI is built, never per message.
  */
 
-import { stdout } from "node:process";
+import { platform, stdout } from "node:process";
 
 export { stripAnsi } from "./ansi.js";
 
@@ -198,47 +198,109 @@ export interface ColorStream {
 	isTTY?: boolean;
 }
 
+/** Is `--flag` on the command line, before any `--`? supports-color's rule. */
+function hasFlag(flag: string, argv: readonly string[]): boolean {
+	const position = argv.indexOf(`--${flag}`);
+	const terminator = argv.indexOf("--");
+	return position !== -1 && (terminator === -1 || position < terminator);
+}
+
+/** 0 for off, a level for on, undefined when the flags say nothing. */
+function flagLevel(argv: readonly string[]): number | undefined {
+	const off = ["no-color", "no-colors", "color=false", "color=never"];
+	if (off.some((flag) => hasFlag(flag, argv))) return 0;
+	const on = ["color", "colors", "color=true", "color=always"];
+	if (on.some((flag) => hasFlag(flag, argv))) return 1;
+	return undefined;
+}
+
 /**
- * CI services that render escape codes in their log viewer.
- *
- * A CI that is NOT on this list gets no colour: an unknown log viewer showing
- * `[32m` on every line is worse than a plain transcript, and the operator has
- * `FORCE_COLOR` to say otherwise.
+ * `FORCE_COLOR`, parsed as supports-color parses it: empty or `true` is on,
+ * `false` is off, 0–3 is a level, anything else is ignored rather than read
+ * as "on" merely for being set.
  */
-const COLOUR_CAPABLE_CI = [
-	"GITHUB_ACTIONS",
-	"GITLAB_CI",
-	"CIRCLECI",
-	"TRAVIS",
-	"BUILDKITE",
-	"DRONE",
-	"APPVEYOR",
-];
+function envLevel(env: Record<string, string | undefined>): number | undefined {
+	const force = env.FORCE_COLOR;
+	if (force === undefined) return undefined;
+	if (force === "true" || force === "") return 1;
+	if (force === "false") return 0;
+	const level = Math.min(Number.parseInt(force, 10), 3);
+	return [0, 1, 2, 3].includes(level) ? level : undefined;
+}
+
+function isSet(env: Record<string, string | undefined>, name: string): boolean {
+	return env[name] !== undefined;
+}
 
 /**
  * Should this stream get escape codes?
  *
- * Asked ONCE, when the UI is built. The order is the one users expect:
- * `NO_COLOR` wins over everything except an explicit `FORCE_COLOR`, because
- * the second is a deliberate override and the first is a default.
+ * Asked ONCE, when the UI is built, and decided as supports-color 10.2.2
+ * (upstream's) decides it: `FORCE_COLOR`, then the `--color`/`--no-color`
+ * flags; then a stream that is not a terminal gets nothing — the CI list is
+ * consulted only after that, so `cmd > out.txt` inside a GitHub job writes
+ * plain text; then what the terminal says about itself.
+ *
+ * NAMED DEVIATION — `NO_COLOR` (no-color.org), which supports-color ignores,
+ * turns colour off unless `FORCE_COLOR` or a flag explicitly asked for it.
  */
 export function supportsColor(
 	stream: ColorStream = stdout,
 	env: Record<string, string | undefined> = process.env,
+	argv: readonly string[] = process.argv,
 ): boolean {
-	const force = env.FORCE_COLOR;
-	if (force !== undefined && force !== "") {
-		// `FORCE_COLOR=0` is how the convention spells "off", so an env var set
-		// to a falsy value must not read as "on" merely by existing.
-		return force !== "0" && force !== "false";
+	const forced = envLevel(env) ?? flagLevel(argv);
+	if (forced === 0) return false;
+	const depth = ["color=16m", "color=full", "color=truecolor", "color=256"];
+	if (depth.some((flag) => hasFlag(flag, argv))) return true;
+	if (
+		forced === undefined &&
+		env.NO_COLOR !== undefined &&
+		env.NO_COLOR !== ""
+	) {
+		return false;
 	}
-	// no-color.org: ANY non-empty value disables colour.
-	if (env.NO_COLOR !== undefined && env.NO_COLOR !== "") return false;
-	if (env.TERM === "dumb") return false;
-	if (env.CI !== undefined && env.CI !== "") {
-		return COLOUR_CAPABLE_CI.some(
-			(name) => env[name] !== undefined && env[name] !== "",
-		);
+	// Azure Pipelines renders colour without giving the agent a terminal.
+	if (isSet(env, "TF_BUILD") && isSet(env, "AGENT_NAME")) return true;
+	if (stream.isTTY !== true && forced === undefined) return false;
+
+	const minimum = (forced ?? 0) > 0;
+	const term = env.TERM ?? "";
+	if (term === "dumb") return minimum;
+	if (platform === "win32") return true;
+	if (isSet(env, "CI")) {
+		const known = [
+			"GITHUB_ACTIONS",
+			"GITEA_ACTIONS",
+			"CIRCLECI",
+			"TRAVIS",
+			"APPVEYOR",
+			"GITLAB_CI",
+			"BUILDKITE",
+			"DRONE",
+		];
+		if (known.some((name) => isSet(env, name))) return true;
+		if (env.CI_NAME === "codeship") return true;
+		return minimum;
 	}
-	return stream.isTTY === true;
+	const teamcity = env.TEAMCITY_VERSION;
+	if (teamcity !== undefined) {
+		return /^(9\.(0*[1-9]\d*)\.|\d{2,}\.)/.test(teamcity);
+	}
+	if (env.COLORTERM === "truecolor") return true;
+	if (["xterm-kitty", "xterm-ghostty", "wezterm"].includes(term)) return true;
+	if (
+		env.TERM_PROGRAM === "iTerm.app" ||
+		env.TERM_PROGRAM === "Apple_Terminal"
+	) {
+		return true;
+	}
+	if (/-256(color)?$/i.test(term)) return true;
+	if (
+		/^screen|^xterm|^vt100|^vt220|^rxvt|color|ansi|cygwin|linux/i.test(term)
+	) {
+		return true;
+	}
+	if (isSet(env, "COLORTERM")) return true;
+	return minimum;
 }
