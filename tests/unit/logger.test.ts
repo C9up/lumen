@@ -318,3 +318,32 @@ describe("lumen > the silent option", () => {
 		expect(renderer.getLogs()).toEqual([]);
 	});
 });
+
+describe("lumen > Spinner.update keeps the decoration", () => {
+	it("changes the text and keeps the label and options, as upstream", () => {
+		const { logger, renderer } = build();
+		const given = { suffix: "npm" };
+		const spinner = logger.await("installing", given).start();
+		spinner.update("50%");
+		spinner.update("90%", { suffix: "yarn" });
+		spinner.update("done\r[ success ]");
+		expect(renderer.getLogs().map((entry) => entry.message)).toEqual([
+			"[ cyan(wait) ] installing dim(yellow((npm)))",
+			"[ cyan(wait) ] 50% dim(yellow((npm)))",
+			"[ cyan(wait) ] 90% dim(yellow((yarn)))",
+			"[ cyan(wait) ] done\\x0d[ success ] dim(yellow((yarn)))",
+		]);
+		// Merged into the spinner's own copy, not into the caller's object.
+		expect(given).toEqual({ suffix: "npm" });
+	});
+
+	it("still takes a whole line from a caller that renders its own", () => {
+		const { logger, renderer } = build();
+		const spinner = logger.await("a").start();
+		spinner.update(() => "custom line");
+		expect(renderer.getLogs().map((entry) => entry.message)).toEqual([
+			"[ cyan(wait) ] a",
+			"custom line",
+		]);
+	});
+});

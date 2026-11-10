@@ -42,6 +42,7 @@ export {
 	type LoggerOptions,
 	type MessageOptions,
 	Spinner,
+	type SpinnerDecorator,
 } from "./logger.js";
 export {
 	type CapturedLog,

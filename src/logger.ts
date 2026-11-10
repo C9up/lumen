@@ -231,10 +231,17 @@ export class Logger {
 
 	/** A message with animated trailing dots, for work of unknown length. */
 	await(message: string, options: MessageOptions = {}): Spinner {
+		// The spinner's own copy: update() merges into it, never into the
+		// caller's object.
+		const current = { ...options };
 		return new Spinner(
-			() => this.prepare("await", message, options),
+			() => this.prepare("await", message, current),
 			this.#renderer,
 			options.silent === true,
+			(text, changed) => {
+				Object.assign(current, changed);
+				return () => this.prepare("await", text, current);
+			},
 		);
 	}
 
@@ -417,6 +424,15 @@ export class Action {
 const LABEL_WIDTH = "SKIPPED:".length;
 
 /**
+ * Turns the text and options given to `Spinner.update()` into the function
+ * that renders the line — called once per update, the line itself per frame.
+ */
+export type SpinnerDecorator = (
+	text: string,
+	options: MessageOptions,
+) => () => string;
+
+/**
  * A message with animated trailing dots.
  *
  * Only animates on a TTY: on a pipe, or with a memory renderer, one line per
@@ -428,6 +444,7 @@ export class Spinner {
 	static readonly INTERVAL = 200;
 
 	#render: () => string;
+	readonly #decorate: SpinnerDecorator;
 	readonly #renderer: Renderer;
 	#timer: ReturnType<typeof setInterval> | undefined;
 	#writer: ((line: string) => void) | undefined;
@@ -440,10 +457,21 @@ export class Spinner {
 	 */
 	#state: "idle" | "running" | "stopped" = "idle";
 
-	constructor(render: () => string, renderer: Renderer, silent = false) {
+	/**
+	 * `decorate` turns the text given to `update()` back into a full line —
+	 * for the logger's spinner, the `[ wait ]` label with its prefix and
+	 * suffix. A spinner built bare shows the text as it is.
+	 */
+	constructor(
+		render: () => string,
+		renderer: Renderer,
+		silent = false,
+		decorate: SpinnerDecorator = (text) => () => text,
+	) {
 		this.#render = render;
 		this.#renderer = renderer;
 		this.#silent = silent;
+		this.#decorate = decorate;
 	}
 
 	start(): this {
@@ -463,9 +491,16 @@ export class Spinner {
 		return this;
 	}
 
-	update(render: string | (() => string)): this {
+	/**
+	 * Change the text, keeping the label and the options — upstream's
+	 * `update(text, options)`, the options merged into the ones given so far.
+	 * A function instead replaces the whole line, for a caller rendering its
+	 * own.
+	 */
+	update(render: string | (() => string), options: MessageOptions = {}): this {
 		if (this.#silent || this.#state !== "running") return this;
-		this.#render = typeof render === "string" ? () => render : render;
+		this.#render =
+			typeof render === "string" ? this.#decorate(render, options) : render;
 		this.#frame = 0;
 		if (this.#animatable()) this.#draw();
 		else this.#renderer.log(this.#line(), "stdout");
