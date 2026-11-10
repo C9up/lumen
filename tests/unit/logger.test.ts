@@ -137,15 +137,21 @@ describe("lumen > Logger.debug", () => {
 		else process.env.DEBUG = before;
 	});
 
-	it("stays silent unless DEBUG is set", () => {
+	it("always logs, as upstream does — the command gates it on its own flag", () => {
+		// A command ported from upstream calls debug() behind its own
+		// `--verbose`; an extra DEBUG gate made that output vanish.
 		delete process.env.DEBUG;
 		const { logger, renderer } = build();
-		logger.debug("noisy");
-		expect(renderer.getLogs()).toEqual([]);
+		logger.debug("detail");
+		expect(renderer.getLogs()).toEqual([
+			{ message: "[ cyan(debug) ] detail", stream: "stdout" },
+		]);
+	});
 
-		process.env.DEBUG = "ream:*";
-		logger.debug("noisy");
-		expect(renderer.getLogs()[0]?.message).toBe("[ cyan(debug) ] noisy");
+	it("is silenced per call like every other level", () => {
+		const { logger, renderer } = build();
+		logger.debug("detail", { silent: true });
+		expect(renderer.getLogs()).toEqual([]);
 	});
 });
 

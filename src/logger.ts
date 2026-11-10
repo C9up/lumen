@@ -186,10 +186,13 @@ export class Logger {
 		this.#renderer.log(`${line}${stack}`, "stderr");
 	}
 
-	/** Only prints when DEBUG is set — the usual escape hatch for noisy detail. */
+	/**
+	 * Always prints, as upstream's does: whether detail is wanted is the
+	 * command's decision — its own `--verbose` flag — not an environment
+	 * variable read behind its back.
+	 */
 	debug(message: string, options: MessageOptions = {}): void {
 		if (options.silent === true) return;
-		if (process.env.DEBUG === undefined || process.env.DEBUG === "") return;
 		this.#renderer.log(this.prepare("debug", message, options), "stdout");
 	}
 
