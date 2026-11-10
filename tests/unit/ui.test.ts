@@ -155,3 +155,18 @@ describe("lumen > raw mode reaches every widget", () => {
 		]);
 	});
 });
+
+describe("lumen > logger.getLogs", () => {
+	it("returns each entry with its stream, as upstream's logger does", () => {
+		// What a command test ported from upstream deep-equals against.
+		const ui = lumen({ mode: "raw" });
+		ui.logger.info("x");
+		ui.logger.error("y");
+		expect(ui.logger.getLogs()).toEqual([
+			{ message: "[ blue(info) ] x", stream: "stdout" },
+			{ message: "[ red(error) ] y", stream: "stderr" },
+		]);
+		// The string view stays on the UI.
+		expect(ui.getLogs()).toEqual(["[ blue(info) ] x", "[ red(error) ] y"]);
+	});
+});

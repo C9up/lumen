@@ -64,7 +64,9 @@ describe("lumen > Logger extras", () => {
 		const quiet = logger.dummy();
 		quiet.success("swallowed");
 		expect(target.getLogs()).toEqual([]);
-		expect(quiet.getLogs()).toEqual(["[ green(success) ] swallowed"]);
+		expect(quiet.getLogs()).toEqual([
+			{ message: "[ green(success) ] swallowed", stream: "stdout" },
+		]);
 	});
 
 	it("writes a bare line to either stream, and drives the update line", () => {

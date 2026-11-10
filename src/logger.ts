@@ -15,6 +15,7 @@ import { sanitize } from "./ansi.js";
 import type { Colors, StyleName } from "./colors.js";
 import { elapsedSince, formatDuration, type StartTime } from "./duration.js";
 import {
+	type CapturedLog,
 	ConsoleRenderer,
 	MemoryRenderer,
 	type Renderer,
@@ -111,8 +112,9 @@ export class Logger {
 		return this;
 	}
 
-	getLogs(): string[] {
-		return this.#renderer.getLogs().map((entry) => entry.message);
+	/** What was captured, each line with the stream it targeted — upstream's shape. */
+	getLogs(): CapturedLog[] {
+		return this.#renderer.getLogs();
 	}
 
 	flushLogs(): void {
