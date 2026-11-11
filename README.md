@@ -68,7 +68,8 @@ same meaning, in every package:
 ```
 
 `warning`, `error` and `fatal` go to **stderr**, so a command's data output
-stays pipeable.
+stays pipeable — a warning included, so `getLogs()` reports it with
+`stream: 'stderr'`.
 
 Each message takes a `prefix` (dim, `%time%` interpolated), a `suffix` (dim
 yellow, in parentheses), a `silent` flag, and a `startTime` rendered as the

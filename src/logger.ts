@@ -7,7 +7,8 @@
  * whether it comes from a migration, the dev server or an application command.
  *
  * Alert levels go to stderr so a command's data output stays pipeable: a
- * warning must not end up inside `ream list --json | jq`.
+ * warning must not end up inside `ream list --json | jq` (a named deviation
+ * for `warning`, on the method).
  */
 
 import { stdout } from "node:process";
@@ -164,6 +165,14 @@ export class Logger {
 		this.#renderer.log(this.prepare("info", message, options), "stdout");
 	}
 
+	/**
+	 * NAMED DEVIATION — upstream writes a warning to stdout, with success and
+	 * info; only `error` and `fatal` go to stderr there. Here a warning goes to
+	 * stderr with them: it is a diagnostic, not the command's output, and on
+	 * stdout it would land inside `ream list --json | jq` and break the pipe.
+	 * An assertion ported from upstream that reads `getLogs()` expects
+	 * `stream: 'stderr'` for a warning.
+	 */
 	warning(message: string, options: MessageOptions = {}): void {
 		if (options.silent === true) return;
 		this.#renderer.log(this.prepare("warning", message, options), "stderr");
