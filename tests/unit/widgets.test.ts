@@ -10,9 +10,10 @@ import { Box } from "../../src/box.js";
 import { ansiColors, rawColors, silentColors } from "../../src/colors.js";
 import { stringWidth } from "../../src/helpers.js";
 import { iconsFor } from "../../src/icons.js";
+import { errors } from "../../src/index.js";
 import { MemoryRenderer } from "../../src/renderers.js";
 import { Steps } from "../../src/steps.js";
-import { InvalidColumnError, Table } from "../../src/table.js";
+import { Table } from "../../src/table.js";
 import { Tasks } from "../../src/tasks.js";
 
 const renderer = (): MemoryRenderer => new MemoryRenderer();
@@ -108,7 +109,7 @@ describe("lumen > Table", () => {
 		const table = new Table(silentColors(), renderer());
 		table.row(["a", "b"]).fullWidth().fluidColumnIndex(5);
 		// Silently doing nothing is the failure noticed three screens later.
-		expect(() => table.prepare()).toThrow(InvalidColumnError);
+		expect(() => table.prepare()).toThrow(errors.E_LUMEN_INVALID_COLUMN);
 		expect(() => table.fluidColumnIndex(-1)).toThrow(/not a column position/);
 	});
 
@@ -312,6 +313,9 @@ describe("lumen > Tasks run once", () => {
 		expect(outcomes[0]?.message).toBe(
 			"the task returned no result: return a success message, or an Error",
 		);
+		expect(outcomes[0]?.error).toMatchObject({
+			code: "E_LUMEN_TASK_NO_RESULT",
+		});
 		expect(target.getLogs()[0]?.stream).toBe("stderr");
 	});
 });

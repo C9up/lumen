@@ -13,6 +13,11 @@
 import { sanitize } from "./ansi.js";
 import type { Colors } from "./colors.js";
 import { formatDuration } from "./duration.js";
+import {
+	E_LUMEN_INTERNAL,
+	E_LUMEN_TASK_FAILED,
+	E_LUMEN_TASK_NO_RESULT,
+} from "./errors.js";
 import { icons } from "./icons.js";
 import type { Renderer } from "./renderers.js";
 
@@ -140,7 +145,10 @@ export class Task {
 	}
 
 	markAsFailed(error: unknown): this {
-		this.#error = error instanceof Error ? error : new Error(String(error));
+		this.#error =
+			error instanceof Error
+				? error
+				: new E_LUMEN_TASK_FAILED([String(error)], { cause: error });
 		this.#state = "failed";
 		this.#finish();
 		return this.#notify();
@@ -178,9 +186,6 @@ export class Task {
 		return this;
 	}
 }
-
-const NO_RESULT =
-	"the task returned no result: return a success message, or an Error";
 
 /** The shape a caller reads off a finished run. */
 export interface TaskOutcome {
@@ -316,8 +321,12 @@ export class Tasks {
 						task.markAsSucceeded();
 					} else if (returned instanceof Error) task.markAsFailed(returned);
 					else if (isTaskError(returned)) {
-						task.markAsFailed(new Error(returned.message));
-					} else task.markAsFailed(new Error(NO_RESULT));
+						task.markAsFailed(
+							new E_LUMEN_TASK_FAILED([returned.message], { cause: returned }),
+						);
+					} else {
+						task.markAsFailed(new E_LUMEN_TASK_NO_RESULT());
+					}
 				}
 			} catch (error) {
 				task.markAsFailed(error);
@@ -343,7 +352,13 @@ export class Tasks {
 			}
 
 			const error = task.getError();
-			const failure = error instanceof Error ? error : new Error(String(error));
+			// `markAsFailed` stores an Error, always: anything else is a bug here.
+			const failure =
+				error instanceof Error
+					? error
+					: new E_LUMEN_INTERNAL([
+							`a failed task holds no Error: ${String(error)}`,
+						]);
 			this.#outcomes.push({
 				title: task.title,
 				state: "failed",

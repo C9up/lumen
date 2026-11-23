@@ -13,6 +13,7 @@
 
 import { ansiTokens, containStyles, sanitize } from "./ansi.js";
 import type { Colors } from "./colors.js";
+import { E_LUMEN_INVALID_COLUMN } from "./errors.js";
 import { terminalWidth, wrap } from "./helpers.js";
 import type { Renderer } from "./renderers.js";
 import { graphemes, graphemeWidth, stringWidth } from "./width.js";
@@ -98,15 +99,6 @@ export interface TableOptions {
 	chars?: Partial<TableChars>;
 }
 
-/** Raised when a table is asked for a shape it does not have. */
-export class InvalidColumnError extends Error {
-	readonly code = "E_LUMEN_INVALID_COLUMN";
-	constructor(message: string) {
-		super(message);
-		this.name = "InvalidColumnError";
-	}
-}
-
 /** Two spaces each side, as upstream sets on cli-table3. */
 const PADDING = 2;
 
@@ -177,9 +169,9 @@ export class Table {
 		// A negative or fractional index would make `fullWidth()` silently do
 		// nothing — the kind of failure that is noticed three screens later.
 		if (!Number.isInteger(index) || index < 0) {
-			throw new InvalidColumnError(
+			throw new E_LUMEN_INVALID_COLUMN([
 				`fluidColumnIndex(${index}) is not a column position.`,
-			);
+			]);
 		}
 		this.#fluidColumn = index;
 		return this;
@@ -194,9 +186,9 @@ export class Table {
 	columnWidths(widths: readonly number[]): this {
 		for (const width of widths) {
 			if (!Number.isInteger(width) || width < 0) {
-				throw new InvalidColumnError(
+				throw new E_LUMEN_INVALID_COLUMN([
 					`columnWidths received ${width}, which is not a column count.`,
-				);
+				]);
 			}
 		}
 		this.#widths = [...widths];
@@ -226,9 +218,9 @@ export class Table {
 		// column it does not have is a mistake whichever mode it renders in,
 		// and a test running in raw mode is exactly where it should surface.
 		if (this.#full && this.#fluidColumn >= columns) {
-			throw new InvalidColumnError(
+			throw new E_LUMEN_INVALID_COLUMN([
 				`fluidColumnIndex(${this.#fluidColumn}) is out of range — the table has ${columns} column(s).`,
-			);
+			]);
 		}
 
 		if (this.#options.raw === true) {
@@ -548,9 +540,9 @@ function layout(rows: TableCell[][]): Grid {
 function readSpan(value: number | undefined, name: string): number {
 	if (value === undefined) return 1;
 	if (!Number.isInteger(value) || value < 1) {
-		throw new InvalidColumnError(
+		throw new E_LUMEN_INVALID_COLUMN([
 			`${name} received ${value}, which is not a number of cells to span.`,
-		);
+		]);
 	}
 	return value;
 }

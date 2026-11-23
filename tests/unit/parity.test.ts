@@ -12,9 +12,10 @@ import { describe, expect, it } from "vitest";
 import { Box } from "../../src/box.js";
 import { ansiColors, rawColors, silentColors } from "../../src/colors.js";
 import { stringWidth } from "../../src/helpers.js";
+import { errors } from "../../src/index.js";
 import { Action, Logger, Spinner } from "../../src/logger.js";
 import { MemoryRenderer } from "../../src/renderers.js";
-import { InvalidColumnError, Table } from "../../src/table.js";
+import { Table } from "../../src/table.js";
 import { type TaskError, Tasks } from "../../src/tasks.js";
 
 const renderer = (): MemoryRenderer => new MemoryRenderer();
@@ -120,7 +121,9 @@ describe("lumen > Table.columnWidths", () => {
 
 	it("refuses a width that is not a column count", () => {
 		const table = new Table(silentColors(), renderer());
-		expect(() => table.columnWidths([-1])).toThrow(InvalidColumnError);
+		expect(() => table.columnWidths([-1])).toThrow(
+			errors.E_LUMEN_INVALID_COLUMN,
+		);
 	});
 
 	it("refuses a span that is not a number of cells", () => {
@@ -132,14 +135,14 @@ describe("lumen > Table.columnWidths", () => {
 		for (const span of [Number.POSITIVE_INFINITY, Number.NaN, 1.5, 0, -1]) {
 			const table = new Table(silentColors(), renderer());
 			table.row([{ content: "wide", colSpan: span }, "b"]);
-			expect(() => table.prepare()).toThrow(InvalidColumnError);
+			expect(() => table.prepare()).toThrow(errors.E_LUMEN_INVALID_COLUMN);
 		}
 	});
 
 	it("refuses the same in a rowSpan", () => {
 		const table = new Table(silentColors(), renderer());
 		table.row([{ content: "tall", rowSpan: Number.NaN }, "b"]);
-		expect(() => table.prepare()).toThrow(InvalidColumnError);
+		expect(() => table.prepare()).toThrow(errors.E_LUMEN_INVALID_COLUMN);
 	});
 
 	it("still spans the cells it was actually asked for", () => {
@@ -411,5 +414,25 @@ describe("lumen > the failure a callback returns", () => {
 
 		expect(outcomes[0]?.state).toBe("failed");
 		expect(outcomes[0]?.message).toBe("refused");
+		expect(outcomes[0]?.error).toMatchObject({
+			code: "E_LUMEN_TASK_FAILED",
+			cause: { message: "refused", isError: true },
+		});
+	});
+
+	it("gives a code to a failure thrown as a bare value", async () => {
+		const { Tasks } = await import("../../src/tasks.js");
+		const tasks = new Tasks(rawColors(), renderer());
+		const outcomes = await tasks
+			.add("fetch", async () => {
+				throw "offline";
+			})
+			.run();
+
+		expect(outcomes[0]?.message).toBe("offline");
+		expect(outcomes[0]?.error).toMatchObject({
+			code: "E_LUMEN_TASK_FAILED",
+			cause: "offline",
+		});
 	});
 });

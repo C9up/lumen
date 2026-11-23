@@ -11,6 +11,7 @@
  */
 
 import { platform, stdout } from "node:process";
+import { E_LUMEN_INTERNAL } from "./errors.js";
 
 export { stripAnsi } from "./ansi.js";
 
@@ -144,7 +145,7 @@ function buildChain(applied: readonly StyleName[], render: Renderer): Colors {
 	Object.defineProperties(callable, descriptors);
 
 	if (!carriesStyles(callable)) {
-		throw new Error("unreachable: the style accessors were just defined");
+		throw new E_LUMEN_INTERNAL(["the style accessors were just defined"]);
 	}
 	return callable;
 }

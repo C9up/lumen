@@ -25,6 +25,7 @@ export {
 	supportsColor,
 } from "./colors.js";
 export { elapsedSince, formatDuration, type StartTime } from "./duration.js";
+export * as errors from "./errors.js";
 export {
 	type JustifyOptions,
 	justify,
@@ -53,7 +54,6 @@ export {
 } from "./renderers.js";
 export { Steps } from "./steps.js";
 export {
-	InvalidColumnError,
 	Table,
 	type TableCell,
 	type TableChars,
